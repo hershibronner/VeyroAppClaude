@@ -1,0 +1,47 @@
+/* TIME area: Apps & Activity + Clock In (prefixed tm-) */
+.tm-filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.tm-filters .select { width: auto; height: 38px; max-width: 220px; }
+
+/* Productive vs idle split bar */
+.tm-split { display: flex; height: 14px; border-radius: 999px; overflow: hidden; background: var(--bg-2); }
+.tm-split > i { display: block; height: 100%; min-width: 2px; }
+.tm-split .act { background: var(--primary); }
+.tm-split .idle { background: var(--warning); }
+.tm-split .brk { background: #C7D2FE; }
+.tm-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 20px; margin-top: 18px; }
+.tm-legend .sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-right: 8px; vertical-align: middle; }
+.tm-legend .v { font-size: 20px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+
+/* Ranked list (URLs, app drill-down) */
+.tm-rank { display: flex; flex-direction: column; }
+.tm-rank-row { all: unset; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 10px 0; border-bottom: 1px solid var(--border-2); width: 100%; }
+.tm-rank-row:last-child { border-bottom: none; }
+button.tm-rank-row { cursor: pointer; }
+button.tm-rank-row:hover .tm-rank-label { color: var(--primary); }
+.tm-rank-label { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-rank-bar { grid-column: 1 / -1; height: 6px; border-radius: 999px; background: var(--bg-2); overflow: hidden; }
+.tm-rank-bar > i { display: block; height: 100%; background: var(--primary); border-radius: 999px; }
+
+/* Clock console rows */
+.tm-clock-list { display: flex; flex-direction: column; }
+.tm-clock-row { display: grid; grid-template-columns: minmax(200px, 1.6fr) 130px minmax(140px, 1fr) minmax(130px, 1fr) minmax(220px, auto); gap: 16px; align-items: center; padding: 14px 20px; border-bottom: 1px solid var(--border-2); }
+.tm-clock-row:last-child { border-bottom: none; }
+.tm-clock-row.head { padding-top: 10px; padding-bottom: 10px; background: var(--bg-2); color: var(--muted); font-size: 12px; font-weight: 500; }
+.tm-clock-row .who { display: flex; gap: 10px; align-items: center; min-width: 0; cursor: pointer; }
+.tm-clock-row .acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.tm-clock-row .lbl { display: none; }
+.tm-timer { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 15px; }
+.tm-mine { border: 1px solid var(--primary-100); background: var(--primary-50); }
+
+@media (max-width: 1024px) {
+  .tm-clock-row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; }
+  .tm-clock-row.head { display: none; }
+  .tm-clock-row .cell { grid-column: 1 / -1; display: flex; gap: 8px; align-items: baseline; }
+  .tm-clock-row .lbl { display: inline; color: var(--muted); font-size: 12px; min-width: 64px; }
+  .tm-clock-row .st { grid-column: 2; grid-row: 1; justify-self: end; }
+  .tm-clock-row .acts { grid-column: 1 / -1; justify-content: flex-start; }
+}
+@media (max-width: 640px) {
+  .tm-legend { grid-template-columns: minmax(0, 1fr); }
+  .tm-filters .select { max-width: none; flex: 1 1 140px; }
+}

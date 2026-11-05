@@ -1,0 +1,19 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: veyroapp-db
+    environment:
+      POSTGRES_USER: veyro
+      POSTGRES_PASSWORD: veyro
+      POSTGRES_DB: veyro
+    ports:
+      - "5433:5432"
+    volumes:
+      - veyro_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U veyro"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+volumes:
+  veyro_pg:

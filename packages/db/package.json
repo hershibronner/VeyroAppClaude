@@ -1,0 +1,23 @@
+{
+  "name": "@veyro/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "migrate": "tsx src/migrate.ts",
+    "seed": "tsx seed/index.ts",
+    "reset": "tsx src/reset.ts && tsx src/migrate.ts && tsx seed/index.ts",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@veyro/shared": "workspace:*",
+    "pg": "^8.13.1",
+    "bcryptjs": "^2.4.3"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.11",
+    "@types/bcryptjs": "^2.4.6"
+  }
+}

@@ -1,0 +1,56 @@
+/* FINANCE part B (payroll, payouts, commissions, margin, pay page, portals) — classes prefixed pr- */
+.pr-section { margin-top: 22px; }
+.pr-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 20px; }
+.pr-strip > div { padding: 16px 20px; border-left: 1px solid var(--border-2); min-width: 0; }
+.pr-strip > div:first-child { border-left: none; }
+.pr-strip .lbl { color: var(--muted); font-size: 13px; }
+.pr-strip .val { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.pr-strip .sub { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.pr-steps { display: flex; align-items: center; gap: 0; margin: 4px 0 18px; flex-wrap: wrap; }
+.pr-step { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--muted); }
+.pr-step .dot { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--gray-bg); color: var(--muted); font-weight: 700; font-size: 12px; }
+.pr-step.done .dot { background: var(--success); color: #fff; }
+.pr-step.on .dot { background: var(--primary); color: #fff; }
+.pr-step.bad .dot { background: var(--danger); color: #fff; }
+.pr-step.done, .pr-step.on { color: var(--text); font-weight: 600; }
+.pr-step-line { width: 48px; height: 2px; background: var(--border); margin: 0 10px; }
+.pr-items td .sub { color: var(--muted); font-size: 12.5px; }
+.pr-expand { background: #FAFBFD; }
+.pr-expand td { padding: 14px 20px 18px; }
+.pr-adj-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.pr-adj-row { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px dashed var(--border); font-size: 13.5px; }
+.pr-adj-form { display: grid; grid-template-columns: 130px 1fr 120px auto; gap: 8px; margin-top: 10px; align-items: end; }
+.pr-log { font-size: 13px; padding: 8px 0; border-bottom: 1px solid var(--border-2); display: flex; gap: 10px; }
+.pr-log:last-child { border-bottom: none; }
+.pr-log .lv { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex: none; background: var(--success); }
+.pr-log .lv.warn { background: var(--warning); } .pr-log .lv.error { background: var(--danger); }
+.pr-tier { display: grid; grid-template-columns: 1fr 110px auto; gap: 8px; margin-bottom: 8px; align-items: center; }
+/* public pay page */
+.pr-pay { min-height: 100vh; background: var(--bg); padding: 32px 16px 48px; }
+.pr-pay-wrap { max-width: 980px; margin: 0 auto; }
+.pr-pay-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+.pr-pay-logo { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; color: #fff; font-weight: 700; }
+.pr-pay-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.pr-pay-total { font-size: 34px; font-weight: 700; letter-spacing: -0.03em; }
+.pr-line { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border-2); font-size: 14px; }
+.pr-line:last-child { border-bottom: none; }
+.pr-tot { display: flex; justify-content: space-between; padding: 4px 0; font-size: 14px; }
+.pr-tot.big { font-weight: 700; font-size: 16px; border-top: 1px solid var(--border); margin-top: 6px; padding-top: 10px; }
+.pr-card-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.pr-hints { background: var(--bg-2); border: 1px dashed var(--border); border-radius: 10px; padding: 10px 12px; font-size: 13px; }
+.pr-hints button { all: unset; cursor: pointer; font-family: ui-monospace, monospace; color: var(--primary); }
+.pr-success { text-align: center; padding: 10px 0; }
+.pr-success .ok { width: 56px; height: 56px; border-radius: 50%; background: var(--success-bg); color: var(--success); display: grid; place-items: center; margin: 0 auto 12px; }
+.pr-foot { text-align: center; color: var(--muted); font-size: 12.5px; margin-top: 26px; }
+.pr-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; }
+@media (max-width: 900px) {
+  .pr-pay-grid { grid-template-columns: 1fr; }
+  .pr-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pr-adj-grid { grid-template-columns: 1fr; }
+  .pr-adj-form { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 480px) {
+  .pr-cards { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .pr-step-line { width: 18px; margin: 0 6px; }
+  .pr-strip > div { border-left: none; border-top: 1px solid var(--border-2); }
+}

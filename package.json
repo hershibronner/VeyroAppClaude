@@ -1,0 +1,28 @@
+{
+  "name": "veyroapp",
+  "private": true,
+  "version": "0.1.0",
+  "description": "VeyroApp — Run your staffing company.",
+  "packageManager": "pnpm@12.3.4",
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "bootstrap": "node scripts/setup.mjs",
+    "db:up": "docker compose up -d db",
+    "db:migrate": "pnpm --filter @veyro/db migrate",
+    "db:seed": "pnpm --filter @veyro/db seed",
+    "db:reset": "pnpm --filter @veyro/db reset",
+    "dev": "concurrently -k -n api,web -c blue,magenta \"pnpm --filter @veyro/api dev\" \"pnpm --filter @veyro/web dev\"",
+    "test": "vitest run",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r typecheck",
+    "e2e": "playwright test"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5",
+    "@playwright/test": "^1.50.1",
+    "tsx": "^4.19.2",
+    "@types/node": "^22.13.1"
+  }
+}

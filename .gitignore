@@ -1,0 +1,10 @@
+node_modules
+storage/*
+!storage/.gitkeep
+dist
+.env
+test-results
+playwright-report
+.DS_Store
+*.log
+docs/qa-sweep*.json
