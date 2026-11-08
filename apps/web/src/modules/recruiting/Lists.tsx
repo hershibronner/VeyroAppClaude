@@ -1,7 +1,8 @@
 // Recruiting list pages: Applications, Submissions, Interviews, Assessments (+ template library), Offers.
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { CalendarClock, Plus, Video, FileText, Download, Trash2 } from 'lucide-react';
+import { CalendarClock, Plus, Video, FileText, Download, Trash2, Link2 } from 'lucide-react';
+import { CandidateLinksDialog } from './CandidateLinks';
 import { api } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
 import { useAuth } from '../../lib/auth';
@@ -13,6 +14,8 @@ import { AssessmentDrawer, CandidateCell, InterviewDrawer, OfferDrawer, useHidde
 
 export function Applications() {
   const nav = useNavigate();
+  const { can } = useAuth();
+  const [linking, setLinking] = useState(false);
   const confirm = useConfirm();
   const [sp, setSp] = useSearchParams();
   const hidden = useHiddenParams(sp, setSp, ['from', 'to', 'stale', 'via_link', 'candidate_id', 'mine_positions']);
@@ -31,7 +34,9 @@ export function Applications() {
     try { await api.post(`/api/v1/applications/${r.id}/status`, { status, reason }); toast.success(`Application ${status}`); reload(); } catch (e) { toast.error(e); }
   };
   return <div>
-    <PageHeader title="Applications" sub="Every application — public form, recruiter links, position links and manual adds." />
+    <PageHeader title="Applications" sub="Every application — public form, recruiter links, position links and manual adds."
+      actions={can('candidates', 'create') && <Button variant="primary" icon={<Link2 size={16} />} onClick={() => setLinking(true)}>Generate link</Button>} />
+    <CandidateLinksDialog open={linking} onClose={() => setLinking(false)} />
     <DataTable title="All applications" endpoint="/api/v1/applications" columns={cols} exportName="applications" exportResource="candidates" params={hidden.params} headerExtra={hidden.chips}
       filters={[{ key: 'status', label: 'Status', options: opts(['new', 'reviewed', 'advanced', 'rejected']) }, { key: 'recruiter_id', label: 'Recruiter', type: 'member' }, { key: 'source', label: 'Source', options: opts(['Website', 'Recruiter link', 'Position link', 'LinkedIn', 'Job board', 'Added by recruiter']) }]}
       rowLink={r => `/recruiting/candidates/${r.candidate_id}?tab=applications`}

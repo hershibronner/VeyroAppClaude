@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { CandidateLinksDialog } from './CandidateLinks';
 import { Link, useNavigate } from 'react-router-dom';
 import { Briefcase, Users, Inbox, CalendarClock, Plus, Link2 } from 'lucide-react';
 import { useApi } from '../../lib/hooks';
@@ -17,6 +18,7 @@ export default function Overview() {
   const [months, setMonths] = useState(6);
   const [newCand, setNewCand] = useState(false);
   const [newPos, setNewPos] = useState(false);
+  const [linking, setLinking] = useState(false);
   const st = useApi<any>(`/api/v1/recruiting/overview?from=${range.from}&to=${range.to}&months=${months}`, [range.from, range.to, months]);
   const d = st.data;
   const rq = `from=${range.from}&to=${range.to}`;
@@ -27,8 +29,10 @@ export default function Overview() {
         actions={<>
           <DateRangePicker value={range} onChange={setRange} />
           {can('positions', 'create') && <Button icon={<Briefcase size={16} />} onClick={() => setNewPos(true)}>New position</Button>}
+          {can('candidates', 'create') && <Button icon={<Link2 size={16} />} onClick={() => setLinking(true)}>Generate link</Button>}
           {can('candidates', 'create') && <Button variant="primary" icon={<Plus size={16} />} onClick={() => setNewCand(true)}>New candidate</Button>}
         </>} />
+      <CandidateLinksDialog open={linking} onClose={() => setLinking(false)} />
       {d && (d.banner.stale_apps > 0 || d.banner.requested_interviews > 0 || d.banner.accepted_unplaced > 0 || d.banner.today_interviews > 0) && (
         <Banner tone={d.banner.stale_apps > 0 ? 'warn' : 'info'}>
           <b>Heads up!</b>{' '}
