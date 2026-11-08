@@ -5,6 +5,7 @@ import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useDebounced } from '../lib/hooks';
 import { useQuickCreate } from './QuickCreate';
+import { toBody } from './ui';
 
 interface Result { type: string; id: string; title: string; subtitle?: string | null; link: string }
 const ICON: Record<string, any> = { client: Building2, lead: Target, contact: User, candidate: User, worker: Users, position: Briefcase, invoice: Receipt, document: FileText, message: MessageSquare };
@@ -36,7 +37,7 @@ export function GlobalSearch({ open, onClose }: { open: boolean; onClose: () => 
   const list: Result[] = q.trim().length < 2 ? [...recent, ...actions] : results;
   const go = (r: Result) => { onClose(); if (r.type === 'action') { qc.open(r.id); return; } pushRecent(orgId, r); nav(r.link); };
   if (!open) return qc.element;
-  return (<>
+  return toBody(<>
     {qc.element}
     <div className="overlay" onClick={onClose} />
     <div className="dialog" style={{ top: '18%', transform: 'translate(-50%, 0)', width: 'min(620px, calc(100vw - 24px))' }} role="dialog" aria-label="Search">

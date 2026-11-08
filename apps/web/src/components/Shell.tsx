@@ -8,7 +8,7 @@ import { useApi } from '../lib/hooks';
 import { realtime } from '../lib/realtime';
 import { relTime } from '../lib/format';
 import { toast } from '../lib/toast';
-import { Avatar, Button, Dialog, Field, Menu, EmptyState } from './ui';
+import { Avatar, Button, Dialog, Field, Menu, EmptyState, toBody } from './ui';
 import { QuickCreateButton } from './QuickCreate';
 import { GlobalSearch } from './GlobalSearch';
 
@@ -115,7 +115,7 @@ function NotificationBell() {
     <div className="menu-wrap">
       <button className="icon-btn" aria-label={`Notifications${unread ? ` (${unread} unread)` : ''}`} onClick={() => setOpen(o => !o)}><Bell size={18} fill={unread ? 'currentColor' : 'none'} />{unread > 0 && <span className="badge-dot">{unread > 99 ? '99+' : unread}</span>}</button>
       {open && <>
-        <div style={{ position: 'fixed', inset: 0, zIndex: 55 }} onClick={() => setOpen(false)} />
+        {toBody(<div style={{ position: 'fixed', inset: 0, zIndex: 55 }} onClick={() => setOpen(false)} />)}
         <div className="menu" style={{ width: 'min(380px, calc(100vw - 24px))', maxHeight: 480, overflowY: 'auto', padding: 0, borderRadius: 16 }}>
           <div className="row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}><b style={{ flex: 1, fontSize: 14 }}>Notifications</b><Button size="xs" variant="ghost" onClick={markAll} disabled={!unread}>Mark all read</Button></div>
           {!state.data?.rows.length ? <EmptyState title="You're all caught up" /> : state.data.rows.map(n => (

@@ -1,4 +1,5 @@
 import { Component, createContext, useContext, useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type ErrorInfo, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AlertTriangle, ArrowLeft, Calendar, ChevronDown, Info, Inbox, Lock, MoreVertical, RefreshCw, X, Search } from 'lucide-react';
 import { humanize, initials, date as fmtDate, todayISO, addDaysISO } from '../lib/format';
@@ -130,6 +131,9 @@ export function Segmented<K extends string>({ options, value, onChange }: { opti
 }
 
 /* ── Overlays ── */
+/** Overlays render on document.body so no ancestor (e.g. the blurred top bar, which becomes the containing block
+ *  for fixed elements) can clip or offset them. */
+export function toBody(node: ReactNode) { return typeof document === 'undefined' ? node : createPortal(node, document.body); }
 function useEscape(open: boolean, onClose: () => void) {
   useEffect(() => { if (!open) return; const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [open, onClose]);
 }
@@ -137,7 +141,7 @@ function useEscape(open: boolean, onClose: () => void) {
 export function Drawer({ open, onClose, title, children, footer, wide }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
   useEscape(open, onClose);
   if (!open) return null;
-  return (<>
+  return toBody(<>
     <div className="overlay" onClick={onClose} />
     <aside className={`drawer ${wide ? 'wide' : ''}`} role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined}>
       <div className="drawer-h"><h2 style={{ flex: 1 }}>{title}</h2><button className="icon-btn" onClick={onClose} aria-label="Close"><X size={18} /></button></div>
@@ -149,7 +153,7 @@ export function Drawer({ open, onClose, title, children, footer, wide }: { open:
 export function Dialog({ open, onClose, title, children, footer, wide }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
   useEscape(open, onClose);
   if (!open) return null;
-  return (<>
+  return toBody(<>
     <div className="overlay" onClick={onClose} />
     <div className={`dialog ${wide ? 'wide' : ''}`} role="dialog" aria-modal="true">
       <div className="dialog-h row"><h2 style={{ flex: 1 }}>{title}</h2><button className="icon-btn" onClick={onClose} aria-label="Close"><X size={18} /></button></div>
