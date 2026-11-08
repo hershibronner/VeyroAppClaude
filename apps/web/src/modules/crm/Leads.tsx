@@ -1,6 +1,6 @@
 import { useState, type DragEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Target, Sparkles, CheckCircle2, ArrowRightLeft, Plus, Upload, LayoutGrid, List, UserPlus, Archive } from 'lucide-react';
+import { Target, Sparkles, CheckCircle2, ArrowRightLeft, Plus, Upload, LayoutGrid, List, UserPlus, Archive, Link2 } from 'lucide-react';
 import { api, qs } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
 import { useAuth } from '../../lib/auth';
@@ -11,6 +11,7 @@ import { DataTable, opts, type Column } from '../../components/DataTable';
 import { Funnel, TrackBars, fmtMoneyCompact } from '../../components/charts';
 import { LEAD_STATUSES, ScoreBadge, sourceOpts } from './common';
 import { ConvertDialog, LeadForm } from './forms';
+import { IntakeLinksDialog } from './IntakeLinks';
 
 export default function Leads() {
   const { can } = useAuth();
@@ -18,6 +19,7 @@ export default function Leads() {
   const [sp, setSp] = useSearchParams();
   const view = sp.get('view') === 'kanban' ? 'kanban' : 'table';
   const [creating, setCreating] = useState(false);
+  const [linking, setLinking] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const stats = useApi<any>('/api/v1/leads/stats', [reloadKey]);
   const s = stats.data;
@@ -29,6 +31,7 @@ export default function Leads() {
         actions={<>
           <Segmented value={view} onChange={setView} options={[{ key: 'table', label: <><List size={14} /> Table</> }, { key: 'kanban', label: <><LayoutGrid size={14} /> Kanban</> }]} />
           {can('imports', 'create') && <Button icon={<Upload size={16} />} onClick={() => nav('/settings/import?type=leads')}>Import CSV</Button>}
+          {can('leads', 'create') && <Button icon={<Link2 size={16} />} onClick={() => setLinking(true)}>Generate link</Button>}
           {can('leads', 'create') && <Button variant="primary" icon={<Plus size={16} />} onClick={() => setCreating(true)}>New Lead</Button>}
         </>} />
       {s && (s.follow_up_overdue > 0 || s.stale_new > 0) && (
@@ -54,6 +57,7 @@ export default function Leads() {
         <Boundary label="Lead funnel"><LeadFunnel /></Boundary>
       </div>
       {view === 'table' ? <LeadTable reloadKey={reloadKey} onChanged={() => setReloadKey(k => k + 1)} /> : <LeadKanban reloadKey={reloadKey} onChanged={() => setReloadKey(k => k + 1)} />}
+      <IntakeLinksDialog open={linking} onClose={() => { setLinking(false); setReloadKey(k => k + 1); }} />
       <LeadForm open={creating} onClose={() => setCreating(false)} onSaved={r => { setReloadKey(k => k + 1); nav(`/crm/leads/${r.id}`); }} />
     </div>
   );

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Sparkles, Video, FileText, X, Tag, ArrowRight } from 'lucide-react';
+import { Plus, Sparkles, Video, FileText, X, Tag, ArrowRight, Link2 } from 'lucide-react';
+import { CandidateLinksDialog } from './CandidateLinks';
 import { api } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
 import { useAuth } from '../../lib/auth';
@@ -32,6 +33,7 @@ export default function Candidates({ talentPool = false }: { talentPool?: boolea
   const confirm = useConfirm();
   const [sp, setSp] = useSearchParams();
   const [creating, setCreating] = useState(false);
+  const [linking, setLinking] = useState(false);
   const [rk, setRk] = useState(0);
   const [nl, setNl] = useState('');
   const [nlBusy, setNlBusy] = useState(false);
@@ -64,7 +66,8 @@ export default function Candidates({ talentPool = false }: { talentPool?: boolea
   return (
     <div>
       <PageHeader title={talentPool ? 'Talent Pool' : 'Candidates'} sub={talentPool ? 'Qualified people kept for future matching — they show up in Find Best Matches.' : 'Every person in your pipeline, independent of any one job.'}
-        actions={can('candidates', 'create') && <Button variant="primary" icon={<Plus size={16} />} onClick={() => setCreating(true)}>New candidate</Button>} />
+        actions={can('candidates', 'create') && <><Button icon={<Link2 size={16} />} onClick={() => setLinking(true)}>Generate link</Button><Button variant="primary" icon={<Plus size={16} />} onClick={() => setCreating(true)}>New candidate</Button></>} />
+      <CandidateLinksDialog open={linking} onClose={() => setLinking(false)} />
       <Card>
         <form className="rec-nl" onSubmit={e => { e.preventDefault(); runNl(); }}>
           <Sparkles size={18} color="var(--accent)" aria-hidden />

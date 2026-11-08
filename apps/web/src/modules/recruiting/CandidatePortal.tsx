@@ -8,7 +8,7 @@ import { toast } from '../../lib/toast';
 import { money, date, dateTime, relTime, humanize } from '../../lib/format';
 import { Banner, Button, Card, CardHeader, Dialog, EmptyState, ErrorState, Field, KV, LoadingBlock, MoneyInput, PageHeader, PhoneInput, StatusPill, TagInput } from '../../components/ui';
 import { tzOpts, CURRENCIES, UNITS } from './shared';
-import { VideoCapture } from './Apply';
+import { VideoCapture } from './ApplyParts';
 import './recruiting.css';
 
 function useMe() { return useApi<any>('/api/v1/portal/candidate/me'); }

@@ -22,7 +22,7 @@ const ROUTES = {
   'candidate@veyro.demo': ['/portal/candidate', '/portal/candidate/media', '/portal/candidate/applications', '/portal/candidate/assessments', '/portal/candidate/interviews', '/portal/candidate/offers', '/portal/candidate/documents', '/portal/candidate/availability', '/portal/candidate/messages'],
   'platform@veyro.demo': ['/platform'],
 };
-const PUBLIC = ['/login', '/register', '/forgot-password', '/apply/maga-hire', '/apply/maga-hire/r/noah-kim', '/dev/outbox', '/dev/webhooks'];
+const PUBLIC = ['/login', '/register', '/forgot-password', '/apply/maga-hire', '/apply/maga-hire/r/noah-kim', '/dev/outbox', '/dev/webhooks', '/hire/maga-hire'];
 const issues = [];
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 async function visit(page, path, user) {
