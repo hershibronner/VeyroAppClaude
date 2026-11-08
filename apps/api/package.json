@@ -9,6 +9,7 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.6.0",
     "@fastify/cookie": "^11.0.2",
     "@fastify/multipart": "^9.0.3",
     "@veyro/db": "workspace:*",

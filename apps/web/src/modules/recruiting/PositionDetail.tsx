@@ -169,19 +169,22 @@ function MatchesTab({ p, onRan }: { p: any; onRan: () => void }) {
   const [showCmp, setShowCmp] = useState(false);
   const [onlyShort, setOnlyShort] = useState(false);
   const [sub, setSub] = useState<any>(null);
-  const run = async () => { setRunning(true); setErr(null); try { const r = await api.post(`/api/v1/positions/${p.id}/matches`, {}); st.setData(r); onRan(); toast.success(`Ranked ${r.results.length} candidates`); } catch (e) { setErr(e); } finally { setRunning(false); } };
+  const run = async () => { setRunning(true); setErr(null); try { const r = await api.post(`/api/v1/positions/${p.id}/matches`, {}); st.setData(r); onRan(); if (r.results.length) toast.success(`Ranked ${r.results.length} candidate${r.results.length === 1 ? '' : 's'}`); else toast.info('No candidates available to match'); } catch (e) { setErr(e); } finally { setRunning(false); } };
   const shortlist = async (r: any) => { try { await api.post(`/api/v1/positions/${p.id}/matches/${r.id}/shortlist`, { shortlisted: !r.shortlisted }); st.reload(); } catch (e) { toast.error(e); } };
   const d = st.data;
   const results = (d?.results ?? []).filter((r: any) => !onlyShort || r.shortlisted);
   const sel = (d?.results ?? []).filter((r: any) => cmp.includes(r.id));
   return <div>
     <Card pad className="mb-3"><div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-      <div><div className="card-title-lg"><Sparkles size={16} /> Find Best Matches</div><div className="small muted">Ranks the authorized talent pool on skills (35), software (15), experience (15), timezone overlap (10), availability (10), language (5) and pay vs budget (10). Only facts on each profile are used.</div>
+      <div><div className="card-title-lg"><Sparkles size={16} /> Find Best Matches</div><div className="small muted">{d?.run?.model?.startsWith('claude') ? 'Claude reads the full role and each candidate profile, then ranks the strongest fits. Only facts on each profile are used.' : 'Ranks the authorized talent pool on skills (35), software (15), experience (15), timezone overlap (10), availability (10), language (5) and pay vs budget (10). Only facts on each profile are used.'}</div>
         {d?.run && <div className="small mt-1">Last run {dateTime(d.run.created_at)} by {d.run.run_by_name ?? '—'} · model <code>{d.run.model}</code> · pool {d.run.inputs?.pool_size ?? '—'} candidates {d.stale ? <StatusPill status="at_risk" label="Stale — position changed" /> : <StatusPill status="active" label="Current" />}</div>}</div>
       <div className="row" style={{ gap: 8 }}>{cmp.length >= 2 && <Button icon={<GitCompare size={16} />} onClick={() => setShowCmp(true)}>Compare ({cmp.length})</Button>}<label className="check small"><input type="checkbox" checked={onlyShort} onChange={e => setOnlyShort(e.target.checked)} /> Shortlist only</label><Button variant="primary" icon={<RefreshCw size={16} />} loading={running} onClick={run}>{d?.run ? 'Re-run' : 'Run'} matching</Button></div>
     </div></Card>
     <AiError error={err} retry={run} />
-    {st.error ? <ErrorState error={st.error} retry={st.reload} /> : !d ? <LoadingBlock /> : !d.run ? <EmptyState icon={<Sparkles size={22} />} title="No match run yet" text="Run matching to rank candidates for this position." /> : results.length === 0 ? <EmptyState title={onlyShort ? 'Nobody shortlisted yet' : 'No candidates matched'} /> :
+    {d?.run?.inputs?.note && <div className="banner warn"><div>{d.run.inputs.note}</div></div>}
+    {st.error ? <ErrorState error={st.error} retry={st.reload} /> : !d ? <LoadingBlock /> : !d.run ? <EmptyState icon={<Sparkles size={22} />} title="No match run yet" text="Run matching to rank candidates for this position." /> : results.length === 0 ? (onlyShort && d.results.length
+        ? <EmptyState icon={<Star size={22} />} title="Nobody shortlisted yet" text={`${d.results.length} candidate${d.results.length === 1 ? ' is' : 's are'} ranked — untick “Shortlist only” to see them.`} action={<Button onClick={() => setOnlyShort(false)}>Show all matches</Button>} />
+        : <EmptyState icon={<Users size={22} />} title="No one to match yet" text={d.run.inputs?.empty_reason ?? 'No candidates were available for this position.'} action={<Link to="/recruiting/candidates" className="btn btn-primary">Go to candidates</Link>} />) :
       results.map((r: any) => <div key={r.id} className="rec-match">
         <div className={`rec-score ${scoreClass(r.score)}`} aria-label={`Score ${r.score} of 100`}>{r.score}</div>
         <div style={{ minWidth: 0 }}>

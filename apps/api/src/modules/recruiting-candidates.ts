@@ -11,7 +11,7 @@ import { listParams, paged } from '../core/list';
 import { emit } from '../core/events';
 import { saveFile } from '../core/storage';
 import { allowedNext, normalizeEmail, normalizePhone } from '@veyro/shared';
-import { assertAiAvailable, logAi, analyzeResume, extractTextFromFile, parseSearch, draft, expandCountry, AI_MODEL, type DraftKind } from '../adapters/ai';
+import { assertAiAvailable, logAi, analyzeResumeAI, extractTextFromFile, parseSearch, draft, expandCountry, AI_MODEL, type DraftKind } from '../adapters/ai';
 import { canEditCandidate, assertEditCandidate, candOut, fullName, stripOfferComp, fileUrl, viewablePosition, positionScopeSql, positionViewScope } from './_recruiting/common';
 
 const money = z.number().int().min(0).nullable().optional();
@@ -257,10 +257,10 @@ export default async function (app: FastifyInstance) {
     await assertEditCandidate(ctx, c);
     await assertAiAvailable(ctx.orgId, 'Analyze Resume');
     if (!c.resume_text?.trim()) throw badRequest(c.resume_file ? 'No readable text in the uploaded resume — fill the fields manually.' : 'Upload a resume first');
-    const ex = analyzeResume(c.resume_text);
-    const row = await insertRow<any>('resume_extractions', { organization_id: ctx.orgId, candidate_id: c.id, model: AI_MODEL, data: JSON.stringify(ex) });
-    await logAi(ctx.orgId, 'analyze_resume', { candidate_id: c.id });
-    await activity(ctx, 'candidate', c.id, 'system', 'Analyze Resume ran — awaiting human review', `${Object.values(ex.fields).filter((f: any) => f.value && (!Array.isArray(f.value) || f.value.length)).length} fields extracted`, { extraction_id: row.id, model: AI_MODEL });
+    const ex = await analyzeResumeAI(ctx.orgId, c.resume_text);
+    const row = await insertRow<any>('resume_extractions', { organization_id: ctx.orgId, candidate_id: c.id, model: ex.model, data: JSON.stringify(ex) });
+    await logAi(ctx.orgId, 'analyze_resume', { candidate_id: c.id, model: ex.model });
+    await activity(ctx, 'candidate', c.id, 'system', 'Analyze Resume ran — awaiting human review', `${Object.values(ex.fields).filter((f: any) => f.value && (!Array.isArray(f.value) || f.value.length)).length} fields extracted`, { extraction_id: row.id, model: ex.model });
     return row;
   });
   app.post('/api/v1/resume-extractions/:id/accept', async (req) => {
@@ -295,7 +295,7 @@ export default async function (app: FastifyInstance) {
     const up = await readUpload(req);
     const t = extractTextFromFile(up.buf, up.filename, up.mime);
     await logAi(ctx.orgId, 'analyze_resume_upload', { filename: up.filename });
-    return { extraction: analyzeResume(t.text, { fileNote: t.note, fileUncertain: t.uncertain }), text: t.text };
+    return { extraction: await analyzeResumeAI(ctx.orgId, t.text, { fileNote: t.note, fileUncertain: t.uncertain }), text: t.text };
   });
   app.post('/api/v1/ai/parse-search', async (req) => {
     const ctx = staff(req);

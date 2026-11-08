@@ -16,7 +16,7 @@ import { sendTemplate } from '../adapters/messaging';
 import { WEB_URL, getSetting } from '../core/settings';
 import { createSession } from '../core/routes-auth';
 import { normalizeEmail } from '@veyro/shared';
-import { assertAiAvailable, logAi, analyzeResume, extractTextFromFile } from '../adapters/ai';
+import { assertAiAvailable, logAi, analyzeResumeAI, extractTextFromFile } from '../adapters/ai';
 import { findDuplicates } from './recruiting-candidates';
 import { applicantToken, verifyApplicantToken, positionRecruiters, fullName } from './_recruiting/common';
 
@@ -110,8 +110,8 @@ export default async function (app: FastifyInstance) {
       const t = extractTextFromFile(buf, name, f.mimetype);
       try {
         await assertAiAvailable(o.id, 'Analyze Resume (public application)');
-        res.extraction = analyzeResume(t.text, { fileNote: t.note, fileUncertain: t.uncertain });
-        await logAi(o.id, 'analyze_resume_public', { filename: name });
+        res.extraction = await analyzeResumeAI(o.id, t.text, { fileNote: t.note, fileUncertain: t.uncertain });
+        await logAi(o.id, 'analyze_resume_public', { filename: name, model: res.extraction.model });
       } catch (e: any) { res.ai_error = e?.message ?? 'AI is unavailable right now — please fill the fields manually.'; }
     }
     return res;

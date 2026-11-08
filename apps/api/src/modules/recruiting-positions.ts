@@ -11,7 +11,7 @@ import { notify } from '../core/notify';
 import { listParams, paged } from '../core/list';
 import { emit } from '../core/events';
 import { WEB_URL } from '../core/settings';
-import { assertAiAvailable, logAi, draft, scoreMatch, AI_MODEL } from '../adapters/ai';
+import { assertAiAvailable, logAi, draft, rankMatchesAI, AI_MODEL } from '../adapters/ai';
 import { positionViewScope, positionScopeSql, viewablePosition, editablePosition, canEditPosition, editScope, stripPositionComp, fullName, candOut } from './_recruiting/common';
 
 const posBody = z.object({
@@ -260,17 +260,33 @@ export default async function (app: FastifyInstance) {
     need(ctx, 'candidates', 'view');
     await assertAiAvailable(ctx.orgId, 'Find Best Matches');
     const b = z.object({ include_submitted: z.boolean().default(false), limit: z.number().int().min(5).max(100).default(25) }).parse(req.body ?? {});
-    const pool = await q<any>(`SELECT c.* FROM candidates c WHERE c.organization_id=$1 AND c.archived_at IS NULL AND c.status NOT IN ('hired','blacklisted','rejected','withdrawn')
-      ${b.include_submitted ? '' : 'AND NOT EXISTS (SELECT 1 FROM candidate_submissions s WHERE s.candidate_id=c.id AND s.position_id=$2)'} ${b.include_submitted ? 'AND $2::uuid IS NOT NULL' : ''}`, [ctx.orgId, p.id]);
-    const scored = pool.map(c => ({ c, m: scoreMatch(p, c) })).sort((a, b2) => b2.m.score - a.m.score).slice(0, b.limit);
-    const inputs = { skills: p.skills, software: p.software, languages: p.languages, timezone: p.timezone, weekly_hours: p.weekly_hours, pay_min_cents: p.pay_min_cents, pay_max_cents: p.pay_max_cents, currency: p.currency, pool_size: pool.length, weights: { skills: 35, software: 15, experience: 15, timezone: 10, availability: 10, language: 5, pay: 10 } };
+    // Pool: every active candidate, plus hired people who are not currently on an active placement (bench).
+    const onPlacement = `EXISTS (SELECT 1 FROM workers w JOIN placements pl ON pl.worker_id=w.id WHERE w.candidate_id=c.id AND pl.status IN ('onboarding','active','on_leave','notice'))`;
+    const pool = await q<any>(`SELECT c.* FROM candidates c WHERE c.organization_id=$1 AND c.archived_at IS NULL AND c.status NOT IN ('blacklisted','rejected','withdrawn')
+      AND (c.status <> 'hired' OR NOT ${onPlacement})
+      ${b.include_submitted ? 'AND $2::uuid IS NOT NULL' : 'AND NOT EXISTS (SELECT 1 FROM candidate_submissions s WHERE s.candidate_id=c.id AND s.position_id=$2)'}`, [ctx.orgId, p.id]);
+    let empty_reason: string | null = null;
+    if (!pool.length) {
+      const k = await one<any>(`SELECT count(*)::int total,
+          count(*) FILTER (WHERE c.status IN ('blacklisted','rejected','withdrawn'))::int closed,
+          count(*) FILTER (WHERE c.status='hired' AND ${onPlacement})::int placed,
+          count(*) FILTER (WHERE EXISTS (SELECT 1 FROM candidate_submissions s WHERE s.candidate_id=c.id AND s.position_id=$2))::int submitted
+        FROM candidates c WHERE c.organization_id=$1 AND c.archived_at IS NULL`, [ctx.orgId, p.id]);
+      const parts = [k.placed && `${k.placed} already placed with a client`, k.submitted && `${k.submitted} already submitted to this position`, k.closed && `${k.closed} rejected, withdrawn or blacklisted`].filter(Boolean);
+      empty_reason = !k.total ? 'There are no candidates in this workspace yet. Add candidates or share your application link, then run matching again.'
+        : `None of your ${k.total} candidate${k.total === 1 ? ' is' : 's are'} available to match${parts.length ? ` (${parts.join(', ')})` : ''}. Add more candidates or share your application link.`;
+    }
+    const company = p.company_id ? await one<any>(`SELECT name FROM companies WHERE id=$1`, [p.company_id]) : null;
+    const ranked = await rankMatchesAI(ctx.orgId, { ...p, client: company?.name ?? null }, pool, b.limit);
+    const scored = ranked.scored;
+    const inputs = { skills: p.skills, software: p.software, languages: p.languages, timezone: p.timezone, weekly_hours: p.weekly_hours, pay_min_cents: p.pay_min_cents, pay_max_cents: p.pay_max_cents, currency: p.currency, pool_size: pool.length, empty_reason, note: ranked.note, weights: { skills: 35, software: 15, experience: 15, timezone: 10, availability: 10, language: 5, pay: 10 } };
     const run = await tx(async (c) => {
-      const r = await insertRow<any>('match_runs', { organization_id: ctx.orgId, position_id: p.id, model: AI_MODEL, inputs: JSON.stringify(inputs), position_version: p.match_version, run_by: ctx.userId }, c);
+      const r = await insertRow<any>('match_runs', { organization_id: ctx.orgId, position_id: p.id, model: ranked.model, inputs: JSON.stringify(inputs), position_version: p.match_version, run_by: ctx.userId }, c);
       for (const s of scored) await insertRow('match_results', { organization_id: ctx.orgId, run_id: r.id, candidate_id: s.c.id, score: s.m.score, breakdown: JSON.stringify(s.m.breakdown), reasons: JSON.stringify(s.m.reasons), missing: JSON.stringify(s.m.missing) }, c);
       return r;
     });
-    await logAi(ctx.orgId, 'find_best_matches', { position_id: p.id, pool: pool.length });
-    await activity(ctx, 'position', p.id, 'system', `AI match run: ${scored.length} candidates ranked from a pool of ${pool.length}`, null, { run_id: run.id, model: AI_MODEL });
+    await logAi(ctx.orgId, 'find_best_matches', { position_id: p.id, pool: pool.length, model: ranked.model });
+    await activity(ctx, 'position', p.id, 'system', `AI match run: ${scored.length} candidates ranked from a pool of ${pool.length}`, null, { run_id: run.id, model: ranked.model });
     return loadMatches(ctx, p, run.id);
   });
   app.get('/api/v1/positions/:id/matches', async (req) => {

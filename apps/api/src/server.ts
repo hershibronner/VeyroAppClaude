@@ -15,6 +15,8 @@ import coreRoutes from './core/routes-core';
 import { startQueue } from './jobs/queue';
 import './core/events';
 
+// Optional local secrets (e.g. ANTHROPIC_API_KEY) from apps/api/.env or the repo-root .env — both gitignored.
+for (const f of ['../.env', '../../../.env']) { const p = path.resolve(path.dirname(fileURLToPath(import.meta.url)), f); if (fs.existsSync(p)) try { process.loadEnvFile(p); } catch {} }
 const PORT = Number(process.env.API_PORT ?? 4100);
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'warn' }, bodyLimit: 30 * 1024 * 1024, trustProxy: true });
 await app.register(cookie);
