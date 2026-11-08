@@ -280,9 +280,10 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
 @keyframes pop { from { opacity: 0; transform: translateY(-4px) scale(.98); } to { opacity: 1; transform: none; } }
 .overlay { position: fixed; inset: 0; background: rgba(15, 20, 34, .35); z-index: 100; animation: fade .15s ease-out; }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
-.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100vw); background: #fff; z-index: 101; display: flex; flex-direction: column; box-shadow: var(--shadow-lg); animation: slide .2s cubic-bezier(.2, .8, .2, 1); }
-.drawer.wide { width: min(820px, 100vw); }
-@keyframes slide { from { transform: translateX(40px); opacity: .6; } to { transform: none; opacity: 1; } }
+/* Create/edit panels open as a centered window — never a side panel (product rule). Full screen on phones. */
+.drawer { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(720px, calc(100vw - 48px)); max-height: calc(100vh - 64px); max-height: calc(100dvh - 64px); background: #fff; z-index: 101; display: flex; flex-direction: column; border-radius: 16px; border: 1px solid var(--border); box-shadow: var(--shadow-lg); animation: centerIn .2s cubic-bezier(.2, .8, .2, 1); overflow: hidden; }
+.drawer.wide { width: min(960px, calc(100vw - 48px)); }
+@keyframes centerIn { from { opacity: 0; transform: translate(-50%, calc(-50% + 12px)) scale(.97); } to { opacity: 1; transform: translate(-50%, -50%); } }
 .drawer-h { display: flex; align-items: center; gap: 10px; padding: 20px 24px; border-bottom: 1px solid var(--border-2); }
 .drawer-h h2 { font-size: 17px; font-weight: 600; }
 .drawer-b { padding: 20px 24px; overflow-y: auto; flex: 1; }
@@ -452,7 +453,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .subtabs a { padding: 0 10px; font-size: 14px; }
   .kv { grid-template-columns: minmax(0, 1fr); gap: 2px 0; }
   .kv dt { margin-top: 8px; }
-  .drawer, .drawer.wide { width: 100vw; }
+  .drawer, .drawer.wide { left: 0; top: 0; transform: none; width: 100vw; height: 100vh; height: 100dvh; max-height: none; border-radius: 0; border: none; animation: fade .18s ease-out; }
   .chart-big { font-size: 30px; }
   .big-timer { font-size: 48px; }
   .detail-head { padding: 18px 16px; }

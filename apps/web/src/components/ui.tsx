@@ -133,6 +133,7 @@ export function Segmented<K extends string>({ options, value, onChange }: { opti
 function useEscape(open: boolean, onClose: () => void) {
   useEffect(() => { if (!open) return; const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [open, onClose]);
 }
+/** Panel for create/edit forms and details. Renders as a centered window (never a side panel); full screen on phones. */
 export function Drawer({ open, onClose, title, children, footer, wide }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
   useEscape(open, onClose);
   if (!open) return null;
