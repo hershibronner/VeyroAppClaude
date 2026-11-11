@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
+import fastifyStatic from '@fastify/static';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,10 +18,24 @@ import './core/events';
 
 // Optional local secrets (e.g. ANTHROPIC_API_KEY) from apps/api/.env or the repo-root .env — both gitignored.
 for (const f of ['../.env', '../../../.env']) { const p = path.resolve(path.dirname(fileURLToPath(import.meta.url)), f); if (fs.existsSync(p)) try { process.loadEnvFile(p); } catch {} }
-const PORT = Number(process.env.API_PORT ?? 4100);
+const PORT = Number(process.env.PORT ?? process.env.API_PORT ?? 4100);
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'warn' }, bodyLimit: 30 * 1024 * 1024, trustProxy: true });
 await app.register(cookie);
 await app.register(multipart, { limits: { fileSize: 60 * 1024 * 1024, files: 5 } });
+
+// Private beta gate: when SITE_PASSWORD is set, every request needs it (browser sign-in prompt, any username).
+const SITE_PASSWORD = process.env.SITE_PASSWORD;
+if (SITE_PASSWORD) {
+  app.addHook('onRequest', async (req, reply) => {
+    reply.header('X-Robots-Tag', 'noindex, nofollow');
+    if (req.url === '/healthz' || req.url.startsWith('/api/v1/webhooks/')) return;
+    const [scheme, b64] = String(req.headers.authorization ?? '').split(' ');
+    const pass = scheme === 'Basic' && b64 ? Buffer.from(b64, 'base64').toString().split(':').slice(1).join(':') : '';
+    const ok = pass.length === SITE_PASSWORD.length && crypto.timingSafeEqual(Buffer.from(pass), Buffer.from(SITE_PASSWORD));
+    if (!ok) return reply.status(401).header('WWW-Authenticate', 'Basic realm="VeyroApp beta", charset="UTF-8"').send('Password required');
+  });
+}
+app.get('/healthz', async () => ({ ok: true }));
 
 app.decorateRequest('ctx', null);
 app.addHook('onRequest', async (req) => {
@@ -80,6 +95,16 @@ for (const f of fs.readdirSync(modDir).filter(f => /\.(ts|js)$/.test(f) && !f.st
     const mod = await import(path.join(modDir, f));
     if (typeof mod.default === 'function') { await app.register(mod.default); loaded.push(f.replace(/\.\w+$/, '')); }
   } catch (e: any) { console.error(`✖ module ${f} failed to load:`, e?.stack ?? e); }
+}
+
+// Production: serve the built web app (apps/web/dist) from the same origin, with SPA fallback.
+const webDist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web/dist');
+if (fs.existsSync(path.join(webDist, 'index.html'))) {
+  await app.register(fastifyStatic, { root: webDist, wildcard: false, index: false });
+  app.setNotFoundHandler((req, reply) => {
+    if (req.method !== 'GET' || req.url.startsWith('/api/') || req.url.startsWith('/files/')) return reply.status(404).send({ error: 'Not found' });
+    return reply.sendFile('index.html');
+  });
 }
 
 startQueue();

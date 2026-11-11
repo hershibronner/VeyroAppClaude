@@ -9,15 +9,17 @@
     "migrate": "tsx src/migrate.ts",
     "seed": "tsx seed/index.ts",
     "reset": "tsx src/reset.ts && tsx src/migrate.ts && tsx seed/index.ts",
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p .",
+    "seed-if-empty": "tsx src/seed-if-empty.ts"
   },
   "dependencies": {
     "@veyro/shared": "workspace:*",
+    "bcryptjs": "^2.4.3",
     "pg": "^8.13.1",
-    "bcryptjs": "^2.4.3"
+    "tsx": "^4.23.15"
   },
   "devDependencies": {
-    "@types/pg": "^8.11.11",
-    "@types/bcryptjs": "^2.4.6"
+    "@types/bcryptjs": "^2.4.6",
+    "@types/pg": "^8.11.11"
   }
 }

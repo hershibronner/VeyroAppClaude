@@ -2,7 +2,7 @@
   "name": "veyroapp",
   "private": true,
   "version": "0.1.0",
-  "description": "VeyroApp — Run your staffing company.",
+  "description": "VeyroApp \u2014 Run your staffing company.",
   "packageManager": "pnpm@12.3.4",
   "scripts": {
     "setup": "node scripts/setup.mjs",
@@ -15,7 +15,9 @@
     "test": "vitest run",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r typecheck",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "build": "pnpm --filter @veyro/web build",
+    "start": "pnpm --filter @veyro/db migrate && pnpm --filter @veyro/db seed-if-empty && pnpm --filter @veyro/api start"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
