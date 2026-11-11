@@ -8,12 +8,13 @@ import { auth, resolveCtx, SESSION_COOKIE, type Ctx } from './context';
 import { badRequest, forbidden, notFound, unauthorized, conflict } from './errors';
 import { audit } from './audit';
 import { rateLimit } from './ratelimit';
+import { IS_PROD } from './env';
 import { sendTemplate } from '../adapters/messaging';
 import { WEB_URL } from './settings';
 import { signedUrl } from './storage';
 
 const SESSION_DAYS = 14;
-const cookieOpts = { path: '/', httpOnly: true, sameSite: 'lax' as const, secure: false, maxAge: SESSION_DAYS * 86400 };
+const cookieOpts = { path: '/', httpOnly: true, sameSite: 'lax' as const, secure: IS_PROD, maxAge: SESSION_DAYS * 86400 };
 
 export async function createSession(reply: FastifyReply, req: FastifyRequest, userId: string, orgId: string | null, opts: { mfaPending?: boolean; impersonatorId?: string; reason?: string } = {}) {
   const id = crypto.randomBytes(32).toString('base64url');

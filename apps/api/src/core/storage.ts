@@ -3,8 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { STORAGE_DIR } from '@veyro/db';
+import { IS_PROD } from './env';
 
-const SECRET = process.env.FILE_SIGNING_SECRET ?? 'veyro-local-dev-signing-secret';
+// In production never fall back to the published dev secret: use a per-process random key (signed links expire anyway).
+const SECRET = process.env.FILE_SIGNING_SECRET ?? (IS_PROD ? crypto.randomBytes(32).toString('hex') : 'veyro-local-dev-signing-secret');
 
 export function saveFile(subdir: string, filename: string, data: Buffer): string {
   const safe = filename.replace(/[^\w.\-]+/g, '_').slice(-80);

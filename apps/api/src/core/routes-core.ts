@@ -5,7 +5,8 @@ import crypto from 'node:crypto';
 import { z } from 'zod';
 import { one, q } from './db';
 import { auth, staff, getOr404 } from './context';
-import { notFound, forbidden } from './errors';
+import { notFound, forbidden, HttpError } from './errors';
+import { IS_PROD } from './env';
 import { addConn } from './realtime';
 import { verifySignature, resolveSafe, MIME } from './storage';
 import { activity } from './audit';
@@ -133,9 +134,11 @@ export default async function coreRoutes(app: FastifyInstance) {
   });
 
   // ── Dev Outbox (local demo only) ──
-  app.get('/api/v1/dev/outbox', { config: { public: true } }, async (req) => {
+  // In production it holds password-reset links, so it is limited to signed-in staff and their own workspace.
+  app.get('/api/v1/dev/outbox', { config: { public: !IS_PROD } }, async (req) => {
     const lp = listParams(req);
     const where: string[] = []; const params: unknown[] = [];
+    if (IS_PROD) { if (!req.ctx || req.ctx.role.kind !== 'agency') throw new HttpError(403, 'Not available'); params.push(req.ctx.orgId); where.push(`o.organization_id=$${params.length}`); }
     if (lp.filters.channel) { params.push(lp.filters.channel); where.push(`channel=$${params.length}`); }
     if (lp.filters.to) { params.push(`%${lp.filters.to}%`); where.push(`to_address ILIKE $${params.length}`); }
     return paged({ select: 'o.*, org.name org_name', from: 'outbox_messages o LEFT JOIN organizations org ON org.id=o.organization_id', where, params, lp: { ...lp, pageSize: Math.min(lp.pageSize, 100) }, searchCols: ['o.subject', 'o.body_text', 'o.to_address'], sortMap: { created_at: 'o.created_at' }, defaultSort: 'o.created_at DESC' });
@@ -143,6 +146,7 @@ export default async function coreRoutes(app: FastifyInstance) {
 
   // ── Local webhook receiver (for demoing outbound webhooks) ──
   app.post('/api/v1/dev/webhook-receiver/:slug', { config: { public: true } }, async (req) => {
+    if (IS_PROD) throw new HttpError(404, 'Not found');
     const { slug } = req.params as { slug: string };
     const sig = String(req.headers['x-veyro-signature'] ?? '');
     const ep = await one<any>(`SELECT e.secret FROM webhook_endpoints e JOIN organizations o ON o.id=e.organization_id WHERE o.slug=$1 AND e.url LIKE '%' || $1 LIMIT 1`, [slug]);
@@ -151,5 +155,5 @@ export default async function coreRoutes(app: FastifyInstance) {
     await q(`INSERT INTO webhook_receiver_log (path, headers, body, signature_valid) VALUES ($1,$2,$3,$4)`, [`/${slug}`, JSON.stringify({ 'x-veyro-event': req.headers['x-veyro-event'], 'x-veyro-signature': sig, 'x-veyro-delivery': req.headers['x-veyro-delivery'] }), raw, valid]);
     return { received: true, signatureValid: valid };
   });
-  app.get('/api/v1/dev/webhook-receiver', { config: { public: true } }, async () => q(`SELECT * FROM webhook_receiver_log ORDER BY received_at DESC LIMIT 100`));
+  app.get('/api/v1/dev/webhook-receiver', { config: { public: true } }, async () => IS_PROD ? Promise.reject(new HttpError(404, 'Not found')) : q(`SELECT * FROM webhook_receiver_log ORDER BY received_at DESC LIMIT 100`));
 }

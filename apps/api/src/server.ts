@@ -9,6 +9,7 @@ import { ZodError } from 'zod';
 import crypto from 'node:crypto';
 import { resolveCtx, type Ctx } from './core/context';
 import { HttpError } from './core/errors';
+import { IS_PROD } from './core/env';
 import { one, q } from './core/db';
 import { rateLimit } from './core/ratelimit';
 import authRoutes from './core/routes-auth';
@@ -23,18 +24,33 @@ const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'warn' }, bodyLi
 await app.register(cookie);
 await app.register(multipart, { limits: { fileSize: 60 * 1024 * 1024, files: 5 } });
 
+// Security headers on every response in production.
+if (IS_PROD) app.addHook('onSend', async (_req, reply) => {
+  reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  reply.header('X-Content-Type-Options', 'nosniff');
+  reply.header('X-Frame-Options', 'DENY');
+  reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+  reply.header('Permissions-Policy', 'camera=(self), microphone=(self), geolocation=()');
+});
+
 // Private beta gate: when SITE_PASSWORD is set, every request needs it (browser sign-in prompt, any username).
+// Wrong guesses are limited to 20 per IP per 15 minutes.
 const SITE_PASSWORD = process.env.SITE_PASSWORD;
+const gateFails = new Map<string, { n: number; until: number }>();
 if (SITE_PASSWORD) {
   app.addHook('onRequest', async (req, reply) => {
     reply.header('X-Robots-Tag', 'noindex, nofollow');
     if (req.url === '/healthz' || req.url.startsWith('/api/v1/webhooks/')) return;
+    const f = gateFails.get(req.ip);
+    if (f && f.until > Date.now() && f.n >= 20) return reply.status(429).send('Too many wrong passwords — try again in 15 minutes');
     const [scheme, b64] = String(req.headers.authorization ?? '').split(' ');
     const pass = scheme === 'Basic' && b64 ? Buffer.from(b64, 'base64').toString().split(':').slice(1).join(':') : '';
     const ok = pass.length === SITE_PASSWORD.length && crypto.timingSafeEqual(Buffer.from(pass), Buffer.from(SITE_PASSWORD));
-    if (!ok) return reply.status(401).header('WWW-Authenticate', 'Basic realm="VeyroApp beta", charset="UTF-8"').send('Password required');
+    if (ok) return;
+    if (pass) { const cur = f && f.until > Date.now() ? f : { n: 0, until: Date.now() + 15 * 60_000 }; cur.n++; gateFails.set(req.ip, cur); }
+    return reply.status(401).header('WWW-Authenticate', 'Basic realm="VeyroApp beta", charset="UTF-8"').send('Password required');
   });
-}
+} else if (IS_PROD) console.warn('⚠ SITE_PASSWORD is not set — the deployed site is publicly reachable.');
 app.get('/healthz', async () => ({ ok: true }));
 
 app.decorateRequest('ctx', null);
