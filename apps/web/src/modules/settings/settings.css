@@ -81,3 +81,24 @@
   .st-ptop { padding: 0 12px; }
 }
 @media (max-width: 640px) { .st-help-grid { grid-template-columns: 1fr; } .st-msg { max-width: 100%; } }
+.st-nbadge { font-style: normal; font-size: 11px; font-weight: 600; min-width: 20px; height: 18px; padding: 0 6px; border-radius: 999px; display: inline-grid; place-items: center; background: rgba(255,255,255,.1); color: #E4E7EE; }
+.st-nbadge.hot { background: #E5484D; color: #fff; }
+.st-nbadge.warn { background: #F59E0B; color: #1A1206; }
+/* Platform control center — needs attention */
+.st-allclear { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-radius: 12px; background: var(--success-bg); border: 1px solid #CDEEDB; color: var(--success-600); font-size: 13px; }
+.st-count { font-size: 11.5px; font-weight: 600; background: var(--warning-bg); color: var(--warning-600); border-radius: 999px; padding: 1px 8px; }
+.st-attn { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.st-attn > div { padding: 4px 16px 14px; border-right: 1px solid var(--border-2); min-width: 0; }
+.st-attn > div:last-child { border-right: 0; }
+.st-attn-h { display: flex; align-items: center; gap: 6px; font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; padding: 8px 0; }
+.st-attn-h a { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 12px; }
+.st-attn-row { display: flex; align-items: center; gap: 10px; padding: 9px 8px; margin: 0 -8px; border-radius: 10px; color: var(--text); }
+.st-attn-row:hover { background: var(--bg); }
+.st-attn-row > svg { color: var(--muted-2); flex: none; }
+.st-attn-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.st-attn-main b { font-size: 13px; font-weight: 600; }
+.st-attn-row .pill { height: 20px; font-size: 11px; }
+.st-attn-empty { font-size: 12.5px; color: var(--muted-2); padding: 8px 0; }
+.st-attn .hd-prio { width: 8px; height: 8px; border-radius: 2px; flex: none; background: var(--muted-2); }
+.st-attn .hd-prio-urgent { background: var(--danger); } .st-attn .hd-prio-high { background: var(--warning); }
+@media (max-width: 1100px) { .st-attn { grid-template-columns: 1fr; } .st-attn > div { border-right: 0; border-bottom: 1px solid var(--border-2); } }

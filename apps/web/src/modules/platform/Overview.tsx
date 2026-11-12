@@ -1,8 +1,8 @@
-import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Armchair, Building2, CreditCard, LifeBuoy, ShieldAlert, Users } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { AlertTriangle, Armchair, Building2, CheckCircle2, ChevronRight, CreditCard, LifeBuoy, ShieldAlert, Users } from 'lucide-react';
 import { useApi } from '../../lib/hooks';
-import { dateTime, money } from '../../lib/format';
-import { Banner, Card, CardHeader, ErrorState, KpiRow, LoadingBlock, PageHeader, Boundary, EmptyState } from '../../components/ui';
+import { date, dateTime, money, relTime } from '../../lib/format';
+import { Banner, Card, CardHeader, ErrorState, KpiRow, LoadingBlock, PageHeader, Boundary, EmptyState, StatusPill } from '../../components/ui';
 import { ChartCard, TrackBars, TrendLine, fmtMoney } from '../../components/charts';
 
 export default function PlatformOverview() {
@@ -18,9 +18,7 @@ export default function PlatformOverview() {
     <div className="stack">
       <PageHeader title="Control center" sub={`${d.agencies} agencies · ${d.staff_users} staff users on VeyroApp`} />
       {info.data?.maintenance_banner && <Banner tone="warn">Maintenance banner is live for all agencies: “{info.data.maintenance_banner}”</Banner>}
-      {d.invoices.failed > 0 && <Banner tone="danger">{d.invoices.failed} SaaS invoice{d.invoices.failed === 1 ? '' : 's'} failed payment. <a href="/platform/invoices?status=failed" onClick={e => { e.preventDefault(); nav('/platform/invoices?status=failed'); }}>Review dunning</a>.</Banner>}
-      {d.active_impersonations > 0 && <Banner tone="warn" icon={<ShieldAlert size={18} />}>{d.active_impersonations} support session{d.active_impersonations === 1 ? ' is' : 's are'} active right now.</Banner>}
-      {d.tickets.urgent > 0 && <Banner>{d.tickets.urgent} high-priority support ticket{d.tickets.urgent === 1 ? '' : 's'} need attention.</Banner>}
+      <Attention a={d.attention} failedJobs={d.jobs.failed_7d} />
       <KpiRow items={[
         { label: 'Agencies', value: d.agencies, icon: <Building2 size={16} />, deltaText: Object.entries(d.statuses).map(([k, v]) => `${v} ${k}`).join(' · '), suffix: '', to: '/platform/agencies' },
         { label: 'Active seats', value: d.seats, icon: <Armchair size={16} />, delta: prev ? ((cur - prev) / prev) * 100 : null, suffix: 'avg vs last month', to: '/platform/seats?status=active' },
@@ -46,5 +44,49 @@ export default function PlatformOverview() {
         </Card>
       </div>
     </div>
+  );
+}
+
+/** What a platform admin should act on today: urgent / overdue tickets, billing problems, live support sessions. */
+function Attention({ a, failedJobs }: { a: any; failedJobs: number }) {
+  const total = a.tickets.length + a.billing.length + a.sessions.length + (failedJobs ? 1 : 0);
+  if (!total) return <div className="st-allclear"><CheckCircle2 size={18} /> <b>All clear.</b> No urgent tickets, billing problems or live support sessions right now.</div>;
+  const billingReason = (b: any) => b.status === 'suspended' ? `Suspended ${b.suspended_at ? relTime(b.suspended_at) : ''}` : b.status === 'grace' ? `Grace period ends ${b.grace_ends_at ? date(b.grace_ends_at) : 'soon'}` : b.failed_invoices ? `${b.failed_invoices} failed invoice${b.failed_invoices === 1 ? '' : 's'}` : `Trial ends ${b.trial_ends_at ? relTime(b.trial_ends_at) : 'soon'}`;
+  return (
+    <Card>
+      <CardHeader title={<span className="row" style={{ gap: 8 }}><AlertTriangle size={16} color="var(--warning)" /> Needs attention <span className="st-count">{total}</span></span>} />
+      <div className="st-attn">
+        <div>
+          <div className="st-attn-h"><LifeBuoy size={14} /> Support <Link to="/platform/tickets?view=urgent">Open inbox</Link></div>
+          {a.tickets.length === 0 ? <div className="st-attn-empty">No urgent or overdue tickets</div> : a.tickets.map((t: any) => (
+            <Link key={t.id} to={`/platform/tickets?view=all&ticket=${t.id}`} className="st-attn-row">
+              <span className={`hd-prio hd-prio-${t.priority}`} />
+              <span className="st-attn-main"><b className="truncate">#{t.number} {t.subject}</b><span className="tiny muted">{t.org_name ?? 'No agency'} · {relTime(t.last_activity_at)}</span></span>
+              {t.overdue ? <StatusPill status="overdue" label="Overdue" tone="red" /> : <StatusPill status={t.priority} />}
+              <ChevronRight size={15} />
+            </Link>))}
+        </div>
+        <div>
+          <div className="st-attn-h"><CreditCard size={14} /> Billing <Link to="/platform/invoices">Invoices</Link></div>
+          {a.billing.length === 0 ? <div className="st-attn-empty">No billing problems</div> : a.billing.map((b: any) => (
+            <Link key={b.id} to={`/platform/agencies/${b.id}`} className="st-attn-row">
+              <span className="st-attn-main"><b className="truncate">{b.name}</b><span className="tiny muted">{billingReason(b)}</span></span>
+              <StatusPill status={b.status} />
+              <ChevronRight size={15} />
+            </Link>))}
+        </div>
+        <div>
+          <div className="st-attn-h"><ShieldAlert size={14} /> Live & system <Link to="/platform/impersonation">Sessions</Link></div>
+          {a.sessions.map((x: any) => (
+            <Link key={x.id} to="/platform/impersonation" className="st-attn-row">
+              <span className="st-attn-main"><b className="truncate">{x.agent} → {x.target}</b><span className="tiny muted">{x.org_name} · started {relTime(x.started_at)}</span></span>
+              <StatusPill status="active" label="Live" />
+              <ChevronRight size={15} />
+            </Link>))}
+          {failedJobs > 0 && <Link to="/platform/system" className="st-attn-row"><span className="st-attn-main"><b>{failedJobs} failed background job{failedJobs === 1 ? '' : 's'}</b><span className="tiny muted">In the last 7 days</span></span><StatusPill status="failed" /><ChevronRight size={15} /></Link>}
+          {!a.sessions.length && !failedJobs && <div className="st-attn-empty">No live sessions or failed jobs</div>}
+        </div>
+      </div>
+    </Card>
   );
 }

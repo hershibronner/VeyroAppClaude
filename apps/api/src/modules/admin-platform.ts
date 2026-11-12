@@ -48,7 +48,32 @@ export default async function (app: FastifyInstance) {
     const mrrTrend = await q<any>(`SELECT to_char(period_start,'Mon') label, period_start, sum(total_cents)::bigint billed, sum(subtotal_cents)::bigint gross FROM saas_invoices WHERE period_start > now() - interval '7 months' AND status <> 'void' GROUP BY period_start ORDER BY period_start`);
     const statuses = orgs.reduce((a: Record<string, number>, o) => { a[o.status ?? 'none'] = (a[o.status ?? 'none'] ?? 0) + 1; return a; }, {});
     const recent = await q<any>(`SELECT a.id::text id, a.created_at, a.action, a.actor_label, a.entity_label, o.name org_name FROM audit_events a LEFT JOIN organizations o ON o.id=a.organization_id WHERE a.action LIKE 'impersonation.%' OR a.action LIKE 'subscription.%' OR a.action LIKE 'platform.%' OR a.action LIKE 'organization.%' ORDER BY a.created_at DESC LIMIT 8`);
-    return { agencies: orgs.length, statuses, seats, mrr_net_cents: mrrNet, mrr_gross_cents: mrrGross, tickets, jobs, invoices: inv, staff_users: users.n, active_impersonations: impersonating.n, seat_history: history, billed_trend: mrrTrend, recent };
+    // "Needs attention" queue: the things a platform admin should act on today.
+    const attention = {
+      tickets: await q<any>(`SELECT t.id, t.number, t.subject, t.priority, t.status, o.name org_name, t.last_activity_at,
+          (t.first_response_at IS NULL AND now() > COALESCE(t.sla_due_at, t.created_at + interval '8 hours')) overdue
+        FROM support_tickets t LEFT JOIN organizations o ON o.id=t.organization_id
+        WHERE t.status='open' AND (t.priority IN ('urgent','high') OR (t.first_response_at IS NULL AND now() > COALESCE(t.sla_due_at, t.created_at + interval '8 hours')))
+        ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 ELSE 2 END, t.created_at LIMIT 5`),
+      billing: await q<any>(`SELECT o.id, o.name, s.status, s.trial_ends_at, s.grace_ends_at, s.suspended_at,
+          (SELECT count(*)::int FROM saas_invoices i WHERE i.organization_id=o.id AND i.status='failed') failed_invoices
+        FROM organizations o JOIN subscriptions s ON s.organization_id=o.id
+        WHERE o.status <> 'deleted' AND (s.status IN ('grace','suspended') OR (s.status='trialing' AND s.trial_ends_at < now() + interval '7 days')
+          OR EXISTS (SELECT 1 FROM saas_invoices i WHERE i.organization_id=o.id AND i.status='failed'))
+        ORDER BY CASE s.status WHEN 'suspended' THEN 0 WHEN 'grace' THEN 1 ELSE 2 END, s.trial_ends_at NULLS LAST LIMIT 6`),
+      sessions: await q<any>(`SELECT i.id, i.started_at, pu.name agent, tu.name target, o.name org_name FROM impersonation_sessions i JOIN users pu ON pu.id=i.platform_user_id JOIN users tu ON tu.id=i.target_user_id JOIN organizations o ON o.id=i.organization_id WHERE i.ended_at IS NULL ORDER BY i.started_at DESC LIMIT 5`),
+    };
+    return { agencies: orgs.length, statuses, seats, mrr_net_cents: mrrNet, mrr_gross_cents: mrrGross, tickets, jobs, invoices: inv, staff_users: users.n, active_impersonations: impersonating.n, seat_history: history, billed_trend: mrrTrend, recent, attention };
+  });
+  // Sidebar badges for the Platform Control Center.
+  app.get('/api/v1/platform/nav-counts', async (req) => {
+    const ctx = platform(req);
+    return one(`SELECT
+        (SELECT count(*)::int FROM support_tickets WHERE status='open') tickets,
+        (SELECT count(*)::int FROM support_tickets WHERE status='open' AND assigned_to=$1) my_tickets,
+        (SELECT count(*)::int FROM saas_invoices WHERE status='failed') failed_invoices,
+        (SELECT count(*)::int FROM impersonation_sessions WHERE ended_at IS NULL) sessions,
+        (SELECT count(*)::int FROM jobs WHERE status='failed' AND created_at > now() - interval '24 hours') failed_jobs`, [ctx.userId]);
   });
   app.get('/api/v1/platform/notifications', async (req) => {
     const ctx = platform(req);
@@ -244,47 +269,7 @@ export default async function (app: FastifyInstance) {
     return { providers: by.map(p => ({ ...p, errors_24h: errs.find(e => e.integration_key === p.key)?.n ?? 0, health: p.error ? 'degraded' : p.disconnected === p.total ? 'disconnected' : 'operational' })), recent, problems, webhooks };
   });
 
-  // ── Support tickets ──
-  app.get('/api/v1/platform/tickets', async (req) => {
-    platform(req);
-    const lp = listParams(req);
-    const where: string[] = []; const params: unknown[] = [];
-    if (lp.filters.status) { params.push(lp.filters.status); where.push(`t.status=$${params.length}`); }
-    if (lp.filters.priority) { params.push(lp.filters.priority); where.push(`t.priority=$${params.length}`); }
-    if (lp.filters.organization_id && isUuid(lp.filters.organization_id)) { params.push(lp.filters.organization_id); where.push(`t.organization_id=$${params.length}`); }
-    return paged({ select: `t.id, t.subject, t.status, t.priority, t.category, t.created_at, t.updated_at, o.name org_name, t.organization_id, u.name created_by_name, a.name assigned_to_name, (SELECT count(*)::int FROM support_ticket_replies r WHERE r.ticket_id=t.id) replies`,
-      from: 'support_tickets t LEFT JOIN organizations o ON o.id=t.organization_id LEFT JOIN users u ON u.id=t.created_by LEFT JOIN users a ON a.id=t.assigned_to', where, params, lp,
-      searchCols: ['t.subject', 't.body', 'o.name'], sortMap: { created_at: 't.created_at', updated_at: 't.updated_at', priority: "CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END", status: 't.status' }, defaultSort: "CASE t.status WHEN 'open' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END, t.updated_at DESC" });
-  });
-  app.get('/api/v1/platform/tickets/:id', async (req) => {
-    platform(req);
-    const { id } = req.params as any; if (!isUuid(id)) throw notFound();
-    const t = await one<any>(`SELECT t.*, o.name org_name, u.name created_by_name, u.email created_by_email, a.name assigned_to_name FROM support_tickets t LEFT JOIN organizations o ON o.id=t.organization_id LEFT JOIN users u ON u.id=t.created_by LEFT JOIN users a ON a.id=t.assigned_to WHERE t.id=$1`, [id]);
-    if (!t) throw notFound();
-    const replies = await q<any>(`SELECT r.*, u.name author_name FROM support_ticket_replies r LEFT JOIN users u ON u.id=r.author_id WHERE r.ticket_id=$1 ORDER BY r.created_at`, [id]);
-    const admins = await q<any>(`SELECT u.id, u.name FROM platform_admins p JOIN users u ON u.id=p.user_id WHERE p.status='active' ORDER BY u.name`);
-    return { ...t, replies, admins };
-  });
-  app.post('/api/v1/platform/tickets/:id/replies', async (req) => {
-    const ctx = platform(req);
-    const { id } = req.params as any; if (!isUuid(id)) throw notFound();
-    const t = await one<any>(`SELECT * FROM support_tickets WHERE id=$1`, [id]); if (!t) throw notFound();
-    const b = z.object({ body: z.string().min(1).max(5000), status: z.enum(['open', 'pending', 'resolved']).optional() }).parse(req.body);
-    const r = await one<any>(`INSERT INTO support_ticket_replies (ticket_id, author_id, body, is_staff) VALUES ($1,$2,$3,true) RETURNING *`, [id, ctx.userId, b.body]);
-    await q(`UPDATE support_tickets SET status=COALESCE($2, CASE WHEN status='open' THEN 'pending' ELSE status END), assigned_to=COALESCE(assigned_to,$3), updated_at=now() WHERE id=$1`, [id, b.status ?? null, ctx.userId]);
-    if (t.organization_id && t.created_by) await notify(t.organization_id, [t.created_by], { event: 'support.reply', title: `VeyroApp Support replied: ${t.subject}`, body: b.body.slice(0, 160), link: `/help/tickets?ticket=${t.id}` });
-    return r;
-  });
-  app.patch('/api/v1/platform/tickets/:id', async (req) => {
-    const ctx = platform(req);
-    const { id } = req.params as any; if (!isUuid(id)) throw notFound();
-    const t = await one<any>(`SELECT * FROM support_tickets WHERE id=$1`, [id]); if (!t) throw notFound();
-    const b = z.object({ status: z.enum(['open', 'pending', 'resolved']).optional(), priority: z.enum(['low', 'normal', 'high', 'urgent']).optional(), assigned_to: z.string().uuid().nullable().optional() }).parse(req.body);
-    await q(`UPDATE support_tickets SET status=COALESCE($2,status), priority=COALESCE($3,priority), assigned_to=CASE WHEN $4::boolean THEN $5::uuid ELSE assigned_to END, updated_at=now() WHERE id=$1`, [id, b.status ?? null, b.priority ?? null, b.assigned_to !== undefined, b.assigned_to ?? null]);
-    if (b.status === 'resolved' && t.status !== 'resolved' && t.organization_id && t.created_by) await notify(t.organization_id, [t.created_by], { event: 'support.resolved', title: `Ticket resolved: ${t.subject}`, link: `/help/tickets?ticket=${t.id}` });
-    await audit(auditAs(ctx, t.organization_id), 'platform.ticket_updated', { type: 'support_ticket', id, label: t.subject }, { status: t.status, priority: t.priority }, b);
-    return { ok: true };
-  });
+  // Support tickets live in admin-helpdesk.ts
 
   // ── Impersonation (support mode) ──
   app.get('/api/v1/platform/impersonations', async (req) => {

@@ -19,7 +19,7 @@ const Flags = lazy(() => import('./Ops').then(m => ({ default: m.FlagsPage })));
 const Providers = lazy(() => import('./Ops').then(m => ({ default: m.ProvidersPage })));
 const System = lazy(() => import('./Ops').then(m => ({ default: m.SystemPage })));
 const Security = lazy(() => import('./Ops').then(m => ({ default: m.SecurityPage })));
-const Tickets = lazy(() => import('./Support').then(m => ({ default: m.TicketsPage })));
+const Tickets = lazy(() => import('./Helpdesk'));
 const Impersonation = lazy(() => import('./Support').then(m => ({ default: m.ImpersonationPage })));
 const Admins = lazy(() => import('./Admins').then(m => ({ default: m.AdminsPage })));
 const PlatformSettings = lazy(() => import('./Admins').then(m => ({ default: m.SettingsPage })));
@@ -33,13 +33,25 @@ const NAV = [
   { group: 'Platform', items: [{ to: '/platform/admins', label: 'Platform admins', icon: KeyRound }, { to: '/platform/settings', label: 'Platform settings', icon: Settings }] },
 ];
 
+/** Sidebar badge for a nav item, from /platform/nav-counts. */
+function badgeFor(to: string, c: any): { value: number; tone: string; title: string } | null {
+  if (!c) return null;
+  if (to === '/platform/tickets' && c.tickets) return { value: c.tickets, tone: c.my_tickets ? 'hot' : '', title: `${c.tickets} open ticket(s) waiting on VeyroApp${c.my_tickets ? `, ${c.my_tickets} assigned to you` : ''}` };
+  if (to === '/platform/invoices' && c.failed_invoices) return { value: c.failed_invoices, tone: 'hot', title: `${c.failed_invoices} failed invoice(s)` };
+  if (to === '/platform/impersonation' && c.sessions) return { value: c.sessions, tone: 'warn', title: `${c.sessions} support session(s) active` };
+  if (to === '/platform/system' && c.failed_jobs) return { value: c.failed_jobs, tone: 'hot', title: `${c.failed_jobs} failed job(s) in 24h` };
+  return null;
+}
+
 function Splash() { return <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}><div className="muted"><span className="spinner" /> Loading…</div></div>; }
 
 function PlatformShell() {
   const { me, loading, logout, switchOrg } = useAuth();
   const loc = useLocation();
   const [open, setOpen] = useState(false);
-  useEffect(() => { setOpen(false); window.scrollTo(0, 0); }, [loc.pathname]);
+  const counts = useApi<any>(me?.isPlatformAdmin && !me.impersonator ? '/api/v1/platform/nav-counts' : null, [me?.isPlatformAdmin]);
+  useInterval(() => { if (me?.isPlatformAdmin) counts.reload(); }, 30000);
+  useEffect(() => { setOpen(false); window.scrollTo(0, 0); if (me?.isPlatformAdmin) counts.reload(); }, [loc.pathname]); // eslint-disable-line react-hooks/exhaustive-deps
   if (loading) return <Splash />;
   if (!me) return <Navigate to={`/login?next=${encodeURIComponent(loc.pathname)}`} replace />;
   if (me.impersonator) return <div style={{ minHeight: '100vh', background: 'var(--bg)' }}><ImpersonationBar /><EmptyState icon={<ShieldAlert size={22} />} title="You are in support mode" text={`End the support session as ${me.user.name} to return to the Platform Control Center.`} /></div>;
@@ -49,7 +61,7 @@ function PlatformShell() {
       {open && <div className="overlay" style={{ zIndex: 110 }} onClick={() => setOpen(false)} />}
       <aside className={`st-pside ${open ? 'open' : ''}`} aria-label="Platform navigation">
         <Link to="/platform" className="logo" style={{ textDecoration: 'none' }}><VeyroMark /> VeyroApp <span className="tiny" style={{ color: '#9D7BFF', fontWeight: 600, marginLeft: 2 }}>PLATFORM</span></Link>
-        {NAV.map(g => <div key={g.group}><div className="lbl">{g.group}</div><nav>{g.items.map(i => <NavLink key={i.to} to={i.to} end={(i as any).end} className={({ isActive }) => (isActive ? 'active' : '')}><i.icon size={17} />{i.label}</NavLink>)}</nav></div>)}
+        {NAV.map(g => <div key={g.group}><div className="lbl">{g.group}</div><nav>{g.items.map(i => { const n = badgeFor(i.to, counts.data); return <NavLink key={i.to} to={i.to} end={(i as any).end} className={({ isActive }) => (isActive ? 'active' : '')}><i.icon size={17} /><span style={{ flex: 1 }}>{i.label}</span>{n ? <em className={`st-nbadge ${n.tone}`} title={n.title}>{n.value}</em> : null}</NavLink>; })}</nav></div>)}
         <div style={{ marginTop: 'auto', padding: 16 }} className="tiny">Signed in as platform staff. Tenant branding never applies here.</div>
       </aside>
       <div className="st-pmain">
