@@ -31,7 +31,20 @@ export function landingFor(me: any): string {
   return '/';
 }
 
+/** Whether emails really go out (Resend configured) or are captured in the Dev Outbox. Fetched once per page load. */
+let modeReq: Promise<{ email_live: boolean }> | null = null;
+export function useEmailLive() {
+  const [live, setLive] = useState<boolean | null>(null);
+  useEffect(() => {
+    modeReq ??= api.get('/api/v1/auth/mode').catch(() => ({ email_live: false }));
+    let on = true; modeReq.then(m => { if (on) setLive(m.email_live); }); return () => { on = false; };
+  }, []);
+  return live;
+}
+const DevOutboxLink = () => <a href="/dev/outbox" target="_blank" rel="noreferrer">Dev Outbox</a>;
+
 export function AuthLayout({ children }: { children: ReactNode }) {
+  const live = useEmailLive();
   return (
     <div className="auth">
       <aside className="auth-brand">
@@ -39,7 +52,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
           <div className="wordmark">VeyroApp</div>
           <p>Run your staffing company. Clients, candidates, placements, time, and billing in one workspace.</p>
         </div>
-        <p className="foot">Local build · MAGA Hire is a demo tenant</p>
+        {live === false && <p className="foot">Local build · MAGA Hire is a demo tenant</p>}
       </aside>
       <main className="auth-main"><div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>{children}</div></main>
     </div>
@@ -56,6 +69,7 @@ export function LoginPage() {
   const [mfa, setMfa] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const live = useEmailLive();
   const finish = async () => { const me = await refresh(); nav(sp.get('next') || landingFor(me), { replace: true }); };
   const submit = async (e?: string, p?: string) => {
     setBusy(true); setErr(null);
@@ -86,11 +100,11 @@ export function LoginPage() {
             <div className="demo-grid">
               {DEMO.map(d => <button key={d.email} type="button" disabled={busy} onClick={() => { setEmail(d.email); setPassword('demo1234'); submit(d.email, 'demo1234'); }}><b>{d.who}</b>{d.role}</button>)}
             </div>
-            <div className="demo-links"><Link to="/register">Create a new agency</Link><a href="/dev/outbox" target="_blank" rel="noreferrer">Dev Outbox</a></div>
+            <div className="demo-links"><Link to="/register">Create a new agency</Link>{live === false && <DevOutboxLink />}</div>
           </div>
         </>) : (<>
           <h1>Enter your code</h1>
-          <div className="sub">We sent a 6-digit sign-in code to your email. In this local build it's in the <a href="/dev/outbox" target="_blank" rel="noreferrer">Dev Outbox</a>.</div>
+          <div className="sub">We sent a 6-digit sign-in code to your email.{live === false && <> In this local build it's in the <DevOutboxLink />.</>}</div>
           <form className="stack" style={{ gap: 14 }} onSubmit={ev => { ev.preventDefault(); verify(); }}>
             <Field label="6-digit code" htmlFor="code"><input id="code" className="input" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={e => setCode(e.target.value.replace(/\D/g, ''))} /></Field>
             {err && <div className="small" role="alert" style={{ color: 'var(--danger)' }}>{err}</div>}
@@ -138,11 +152,12 @@ export function ForgotPage() {
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
+  const live = useEmailLive();
   return (
     <AuthLayout>
       <div className="auth-card">
         <h1>Reset your password</h1>
-        {sent ? <div className="sub">If an account exists for <b>{email}</b>, a reset link is on its way. In this local build, open the <a href="/dev/outbox" target="_blank" rel="noreferrer">Dev Outbox</a> to find it.</div> : (<>
+        {sent ? <div className="sub">If an account exists for <b>{email}</b>, a reset link is on its way. {live === false ? <>In this local build, open the <DevOutboxLink /> to find it.</> : <>Check your inbox (and spam folder). The link works for 1 hour.</>}</div> : (<>
           <div className="sub">Enter your email and we'll send you a reset link.</div>
           <form className="stack" style={{ gap: 14 }} onSubmit={async e => { e.preventDefault(); setBusy(true); try { await api.post('/api/v1/auth/forgot', { email }); setSent(true); } finally { setBusy(false); } }}>
             <Field label="Email" htmlFor="email"><input id="email" className="input" type="email" required value={email} onChange={e => setEmail(e.target.value)} /></Field>

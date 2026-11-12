@@ -223,6 +223,9 @@ export default async function authRoutes(app: FastifyInstance) {
     return org;
   });
 
+  // Lets the sign-in screens say "check your inbox" vs. "open the Dev Outbox".
+  app.get('/api/v1/auth/mode', { config: { public: true } }, async () => ({ email_live: !!emailDelivery() }));
+
   app.post('/api/v1/auth/forgot', { config: { public: true } }, async (req) => {
     const { email } = z.object({ email: z.string().email() }).parse(req.body);
     await rateLimit(`forgot:${req.ip}`, 10, 600);
