@@ -4,6 +4,7 @@ import { date, money, relTime } from '../../lib/format';
 import { useApi } from '../../lib/hooks';
 import { PageHeader, StatusPill } from '../../components/ui';
 import { DataTable, opts } from '../../components/DataTable';
+import { ApplicationsPanel } from './Applications';
 
 const STATUS_TABS = [
   { key: '', label: 'All' },
@@ -50,6 +51,7 @@ export default function AgenciesPage() {
         <div><span>Trialing</span><b>{s.by_status.trialing ?? 0}</b></div>
         <div className={s.at_risk ? 'warn' : ''}><span>Need attention</span><b>{s.at_risk}</b></div>
       </div>}
+      <ApplicationsPanel />
       <div className="tabs st-tabs" role="tablist">{STATUS_TABS.map(t => {
         const n = t.key ? s?.by_status[t.key] ?? 0 : s?.total;
         if (t.key && !n && status !== t.key) return null;
