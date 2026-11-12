@@ -99,11 +99,30 @@ export default async function (app: FastifyInstance) {
         (SELECT count(*)::int FROM organization_memberships m JOIN roles r ON r.id=m.role_id WHERE m.organization_id=o.id AND m.status='active' AND r.kind='agency') staff,
         (SELECT count(*)::int FROM organization_memberships m JOIN roles r ON r.id=m.role_id WHERE m.organization_id=o.id AND m.status='active' AND r.kind='client') client_users,
         (SELECT max(u.last_login_at) FROM organization_memberships m JOIN users u ON u.id=m.user_id WHERE m.organization_id=o.id) last_active_at,
-        (SELECT count(*)::int FROM support_tickets t WHERE t.organization_id=o.id AND t.status <> 'resolved') open_tickets`,
+        (SELECT count(*)::int FROM support_tickets t WHERE t.organization_id=o.id AND t.status <> 'resolved') open_tickets,
+        (SELECT count(*)::int FROM saas_invoices i WHERE i.organization_id=o.id AND i.status='failed') failed_invoices`,
       from: 'organizations o LEFT JOIN subscriptions s ON s.organization_id=o.id LEFT JOIN plans p ON p.key=s.plan_key LEFT JOIN organization_branding b ON b.organization_id=o.id', where, params, lp,
       searchCols: ['o.name', 'o.slug'], sortMap: { name: 'o.name', created_at: 'o.created_at', seats: 'seats', staff: 'staff', status: 's.status' }, defaultSort: 'o.name ASC' });
     for (const r of res.rows) { const m = await mrrFor(r.id); r.mrr_cents = m.net; r.mrr_gross_cents = m.gross; }
     return res;
+  });
+  // Status tabs + summary strip on the Agencies page.
+  app.get('/api/v1/platform/agencies-summary', async (req) => {
+    platform(req);
+    const orgs = await q<any>(`SELECT o.id, s.status, s.trial_ends_at,
+        (SELECT max(u.last_login_at) FROM organization_memberships m JOIN users u ON u.id=m.user_id WHERE m.organization_id=o.id) last_active_at,
+        (SELECT count(*)::int FROM saas_invoices i WHERE i.organization_id=o.id AND i.status='failed') failed_invoices
+      FROM organizations o LEFT JOIN subscriptions s ON s.organization_id=o.id WHERE o.status <> 'deleted'`);
+    const by: Record<string, number> = {};
+    let mrr = 0, seats = 0, atRisk = 0;
+    for (const o of orgs) {
+      by[o.status ?? 'none'] = (by[o.status ?? 'none'] ?? 0) + 1;
+      const m = await mrrFor(o.id); mrr += m.net; seats += m.seats ?? 0;
+      const quiet = !o.last_active_at || Date.now() - new Date(o.last_active_at).getTime() > 14 * 864e5;
+      const trialEnding = o.status === 'trialing' && o.trial_ends_at && new Date(o.trial_ends_at).getTime() - Date.now() < 7 * 864e5;
+      if (['grace', 'suspended'].includes(o.status) || o.failed_invoices || trialEnding || quiet) atRisk++;
+    }
+    return { total: orgs.length, by_status: by, mrr_cents: mrr, seats, at_risk: atRisk };
   });
   app.get('/api/v1/platform/agencies/:id', async (req) => {
     platform(req);
@@ -121,8 +140,8 @@ export default async function (app: FastifyInstance) {
     const invoices = await q<any>(`SELECT * FROM saas_invoices WHERE organization_id=$1 ORDER BY period_start DESC LIMIT 24`, [o.id]);
     const flags = await q<any>(`SELECT key, enabled, updated_at FROM feature_flags WHERE organization_id=$1 ORDER BY key`, [o.id]);
     const integrations = await q<any>(`SELECT key, category, provider, status, last_sync_at, last_error FROM integrations WHERE organization_id=$1 ORDER BY category`, [o.id]);
-    const tickets = await q<any>(`SELECT id, subject, status, priority, created_at FROM support_tickets WHERE organization_id=$1 ORDER BY created_at DESC LIMIT 10`, [o.id]);
-    const activity = await q<any>(`SELECT id::text id, created_at, action, actor_label, entity_label, impersonator_id IS NOT NULL impersonated FROM audit_events WHERE organization_id=$1 ORDER BY created_at DESC LIMIT 15`, [o.id]);
+    const tickets = await q<any>(`SELECT id, number, subject, status, priority, created_at, last_activity_at FROM support_tickets WHERE organization_id=$1 ORDER BY last_activity_at DESC LIMIT 20`, [o.id]);
+    const activity = await q<any>(`SELECT id::text id, created_at, action, actor_label, entity_label, impersonator_id IS NOT NULL impersonated FROM audit_events WHERE organization_id=$1 ORDER BY created_at DESC LIMIT 40`, [o.id]);
     const now = new Date();
     return { org: o, subscription: sub, branding, usage, members, invoices, flags, integrations, tickets, activity, seats_now: await activeSeats(o.id), mrr: await mrrFor(o.id), seat_history: await seatHistory(o.id, 6), estimate: await quoteMonth(o.id, ymOf(now)), last_month: lastMonth() };
   });
@@ -191,17 +210,29 @@ export default async function (app: FastifyInstance) {
     return paged({ select: 'i.id, i.number, i.organization_id, o.name org_name, i.period_start, i.period_end, i.seat_days, i.avg_seats, i.subtotal_cents, i.discount_cents, i.tax_cents, i.total_cents, i.status, i.created_at, i.paid_at, i.attempts, i.failure_reason', from: 'saas_invoices i JOIN organizations o ON o.id=i.organization_id', where, params, lp,
       searchCols: ['i.number', 'o.name'], sortMap: { period_start: 'i.period_start', total_cents: 'i.total_cents', org_name: 'o.name', status: 'i.status' }, defaultSort: 'i.period_start DESC, o.name' });
   });
+  // Money strip + status tabs on the invoices page.
+  app.get('/api/v1/platform/invoices-summary', async (req) => {
+    platform(req);
+    return one(`SELECT count(*)::int total,
+        count(*) FILTER (WHERE status='open')::int open, count(*) FILTER (WHERE status='failed')::int failed, count(*) FILTER (WHERE status='paid')::int paid,
+        count(*) FILTER (WHERE status='comped')::int comped, count(*) FILTER (WHERE status='void')::int void,
+        COALESCE(sum(total_cents) FILTER (WHERE status IN ('open','failed')),0)::bigint outstanding_cents,
+        COALESCE(sum(total_cents) FILTER (WHERE status='failed'),0)::bigint failed_cents,
+        COALESCE(sum(total_cents) FILTER (WHERE status='paid' AND paid_at >= date_trunc('month', now())),0)::bigint collected_mtd_cents,
+        COALESCE(sum(total_cents) FILTER (WHERE status='paid' AND paid_at >= date_trunc('year', now())),0)::bigint collected_ytd_cents
+      FROM saas_invoices`);
+  });
   app.get('/api/v1/platform/invoices/:id', async (req) => {
     platform(req);
     const { id } = req.params as any; if (!isUuid(id)) throw notFound();
-    const inv = await one<any>(`SELECT i.*, o.name org_name FROM saas_invoices i JOIN organizations o ON o.id=i.organization_id WHERE i.id=$1`, [id]);
+    const inv = await one<any>(`SELECT i.*, o.name org_name, o.slug org_slug, s.billing_email, s.card_brand, s.card_last4 FROM saas_invoices i JOIN organizations o ON o.id=i.organization_id LEFT JOIN subscriptions s ON s.organization_id=i.organization_id WHERE i.id=$1`, [id]);
     if (!inv) throw notFound();
     return inv;
   });
   app.post('/api/v1/platform/invoices/:id/:action', async (req) => {
     const ctx = platform(req);
     const { id, action } = req.params as any; if (!isUuid(id)) throw notFound();
-    const inv = await one<any>(`SELECT i.*, o.name org_name FROM saas_invoices i JOIN organizations o ON o.id=i.organization_id WHERE i.id=$1`, [id]);
+    const inv = await one<any>(`SELECT i.*, o.name org_name, o.slug org_slug, s.billing_email, s.card_brand, s.card_last4 FROM saas_invoices i JOIN organizations o ON o.id=i.organization_id LEFT JOIN subscriptions s ON s.organization_id=i.organization_id WHERE i.id=$1`, [id]);
     if (!inv) throw notFound();
     const actor = auditAs(ctx, inv.organization_id) as any;
     if (action === 'charge') return chargeInvoice(inv.id, actor);

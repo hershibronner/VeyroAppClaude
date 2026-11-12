@@ -1,68 +1,115 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { FilePlus2, Pencil } from 'lucide-react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { CreditCard, FilePlus2, Pencil } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
 import { toast } from '../../lib/toast';
 import { date, money } from '../../lib/format';
-import { Button, Card, CardHeader, Dialog, ErrorState, Field, LoadingBlock, PageHeader, StatusPill, useConfirm, Drawer, KV } from '../../components/ui';
+import { Banner, Button, Card, CardHeader, Dialog, ErrorState, Field, LoadingBlock, PageHeader, StatusPill, useConfirm } from '../../components/ui';
 import { DataTable, opts } from '../../components/DataTable';
 import { ChartCard, TrackBars } from '../../components/charts';
 import { FormDrawer } from '../../components/FormDrawer';
 
+const INV_TABS = [{ key: '', label: 'All' }, { key: 'open', label: 'Open' }, { key: 'failed', label: 'Failed' }, { key: 'paid', label: 'Paid' }, { key: 'comped', label: 'Comped' }, { key: 'void', label: 'Void' }];
+
 export function InvoicesPage() {
+  const [sp, setSp] = useSearchParams();
   const [rk, setRk] = useState(0);
   const [gen, setGen] = useState(false);
   const [month, setMonth] = useState(() => { const d = new Date(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 7); });
   const [busy, setBusy] = useState(false);
-  const [view, setView] = useState<string | null>(null);
-  const confirm = useConfirm();
-  const agencies = useApi<any>('/api/v1/platform/agencies?pageSize=200');
-  const act = async (i: any, action: string, reload: () => void) => {
-    let body: any = {};
-    if (action === 'mark-paid' || action === 'void') { const r = await confirm({ title: action === 'void' ? `Void ${i.number}?` : `Mark ${i.number} paid?`, danger: action === 'void', reason: { label: 'Reason (audited)', required: true } }); if (!r.ok) return; body = { reason: r.reason }; }
-    try { const r = await api.post(`/api/v1/platform/invoices/${i.id}/${action}`, body); if (r.message) (r.ok ? toast.success : toast.error)(r.message); else toast.success('Invoice updated'); reload(); } catch (e) { toast.error(e); }
-  };
+  const view = sp.get('invoice');
+  const status = sp.get('status') ?? '';
+  const setQ = (patch: Record<string, string | null>) => { const n = new URLSearchParams(sp); for (const [k, v] of Object.entries(patch)) v ? n.set(k, v) : n.delete(k); setSp(n, { replace: true }); };
+  const sum = useApi<any>('/api/v1/platform/invoices-summary', [rk]);
+  const agencies = useApi<any>('/api/v1/platform/agencies?pageSize=500&sort=name&dir=asc');
+  const act = useInvoiceAction(() => { setRk(k => k + 1); });
+  const s = sum.data;
   return (
     <div className="stack">
-      <PageHeader title="Subscriptions & SaaS invoices" sub="Monthly invoices to agencies: seat-days × plan price + add-ons − discounts/comps + tax. Payments are simulated."
+      <PageHeader title="Subscriptions & invoices" sub="Monthly invoices to agencies: seat-days × plan price + add-ons − discounts and comps + tax. Payments are simulated."
         actions={<Button variant="primary" icon={<FilePlus2 size={16} />} onClick={() => setGen(true)}>Generate monthly invoices</Button>} />
-      <DataTable<any> title="Invoices" endpoint="/api/v1/platform/invoices" reloadKey={rk} exportName="saas-invoices" onRowClick={r => setView(r.id)}
-        filters={[{ key: 'status', label: 'Status', options: opts(['open', 'paid', 'failed', 'comped', 'void']) }, { key: 'organization_id', label: 'Agency', options: (agencies.data?.rows ?? []).map((a: any) => ({ value: a.id, label: a.name })) }]}
+      {s && <div className="st-sumstrip">
+        <div><span>Outstanding</span><b>{money(s.outstanding_cents, 'USD', { noCents: true })}</b></div>
+        <div className={s.failed ? 'warn' : ''}><span>Failed payments</span><b>{s.failed ? `${s.failed} · ${money(s.failed_cents, 'USD', { noCents: true })}` : 0}</b></div>
+        <div><span>Collected this month</span><b>{money(s.collected_mtd_cents, 'USD', { noCents: true })}</b></div>
+        <div><span>Collected this year</span><b>{money(s.collected_ytd_cents, 'USD', { noCents: true })}</b></div>
+        <div><span>Invoices</span><b>{s.total}</b></div>
+      </div>}
+      <div className="tabs st-tabs" role="tablist">{INV_TABS.map(t => {
+        const n = t.key ? s?.[t.key] ?? 0 : s?.total;
+        if (t.key && !n && status !== t.key) return null;
+        return <button key={t.key} role="tab" aria-selected={status === t.key} className={status === t.key ? 'on' : ''} onClick={() => setQ({ status: t.key, page: null })}>{t.label}{n != null && <span className="count">{n}</span>}</button>;
+      })}</div>
+      <DataTable<any> title="Invoices" endpoint="/api/v1/platform/invoices" reloadKey={rk} exportName="saas-invoices" onRowClick={r => setQ({ invoice: r.id })}
+        params={{ status: status || undefined }} searchPlaceholder="Search invoice number or agency"
+        filters={[{ key: 'organization_id', label: 'Agency', options: (agencies.data?.rows ?? []).map((a: any) => ({ value: a.id, label: a.name })) }]}
         columns={[
-          { key: 'number', label: 'Invoice', mobile: 'title', render: r => <span className="bold">{r.number}</span> },
+          { key: 'number', label: 'Invoice', mobile: 'title', render: r => <span className="bold mono">{r.number}</span> },
           { key: 'org_name', label: 'Agency', sortable: true, mobile: 'subtitle' },
           { key: 'period_start', label: 'Month', sortable: true, render: r => date(r.period_start, { month: 'short', year: 'numeric' }) },
-          { key: 'seat_days', label: 'Seat-days', align: 'right' },
           { key: 'avg_seats', label: 'Avg seats', align: 'right', render: r => Number(r.avg_seats).toFixed(1) },
           { key: 'subtotal_cents', label: 'Subtotal', align: 'right', render: r => money(r.subtotal_cents), csv: r => r.subtotal_cents / 100 },
-          { key: 'discount_cents', label: 'Discount', align: 'right', render: r => r.discount_cents ? `−${money(r.discount_cents)}` : '—', csv: r => r.discount_cents / 100 },
+          { key: 'discount_cents', label: 'Discount', align: 'right', render: r => r.discount_cents ? `−${money(r.discount_cents)}` : <span className="muted">—</span>, csv: r => r.discount_cents / 100 },
           { key: 'total_cents', label: 'Total', align: 'right', sortable: true, render: r => <b>{money(r.total_cents)}</b>, csv: r => r.total_cents / 100 },
-          { key: 'status', label: 'Status', sortable: true, render: r => <StatusPill status={r.status} /> },
+          { key: 'status', label: 'Status', sortable: true, render: r => <span><StatusPill status={r.status} />{r.failure_reason && <div className="tiny" style={{ color: 'var(--danger)', marginTop: 2 }}>{r.failure_reason}</div>}</span> },
         ]}
         rowActions={(r, reload) => ['open', 'failed'].includes(r.status) ? [
           { label: 'Charge card on file', onClick: () => act(r, 'charge', reload) }, { label: 'Simulate failed payment', onClick: () => act(r, 'simulate-failure', reload) },
           { label: 'Mark as paid', onClick: () => act(r, 'mark-paid', reload) }, { label: 'Void', danger: true, onClick: () => act(r, 'void', reload) },
-        ] : [{ label: 'View details', onClick: () => setView(r.id) }]} />
+        ] : [{ label: 'View invoice', onClick: () => setQ({ invoice: r.id }) }]} />
       <Dialog open={gen} onClose={() => setGen(false)} title="Generate monthly invoices" footer={<><Button onClick={() => setGen(false)}>Cancel</Button><Button variant="primary" loading={busy} onClick={async () => { setBusy(true); try { const r = await api.post('/api/v1/platform/invoices/generate-all', { month }); toast.success(`${r.created} new invoice${r.created === 1 ? '' : 's'} for ${r.month} (${r.agencies - r.created} already existed)`); setRk(k => k + 1); setGen(false); } catch (e) { toast.error(e); } finally { setBusy(false); } }}>Generate</Button></>}>
         <p className="small muted">Creates one invoice per agency for a completed month. Safe to run again — existing invoices are never duplicated.</p>
         <Field label="Month" htmlFor="ga-m"><input id="ga-m" type="month" className="input" value={month} onChange={e => setMonth(e.target.value)} /></Field>
       </Dialog>
-      <InvoiceView id={view} onClose={() => setView(null)} />
+      <InvoiceView id={view} onClose={() => setQ({ invoice: null })} onChanged={() => setRk(k => k + 1)} />
     </div>
   );
 }
 
-function InvoiceView({ id, onClose }: { id: string | null; onClose: () => void }) {
+/** Charge / simulate failure / mark paid / void, with an audited reason where money changes by hand. */
+function useInvoiceAction(after: () => void) {
+  const confirm = useConfirm();
+  return async (i: any, action: string, reload?: () => void) => {
+    let body: any = {};
+    if (action === 'mark-paid' || action === 'void') { const r = await confirm({ title: action === 'void' ? `Void ${i.number}?` : `Mark ${i.number} paid?`, danger: action === 'void', reason: { label: 'Reason (audited)', required: true } }); if (!r.ok) return; body = { reason: r.reason }; }
+    try { const r = await api.post(`/api/v1/platform/invoices/${i.id}/${action}`, body); if (r.message) (r.ok ? toast.success : toast.error)(r.message); else toast.success('Invoice updated'); reload?.(); after(); } catch (e) { toast.error(e); }
+  };
+}
+
+function InvoiceView({ id, onClose, onChanged }: { id: string | null; onClose: () => void; onChanged: () => void }) {
   const st = useApi<any>(id ? `/api/v1/platform/invoices/${id}` : null, [id]);
+  const act = useInvoiceAction(() => { st.reload(); onChanged(); });
   const i = st.data;
+  const payable = i && ['open', 'failed'].includes(i.status);
+  const lines = i ? (i.lines?.length ? i.lines : [{ label: `Seats — ${i.seat_days} seat-days`, amount_cents: i.subtotal_cents }]) : [];
   return (
-    <Drawer open={!!id} onClose={onClose} title={i?.number ?? 'Invoice'}>
-      {!i ? <LoadingBlock /> : <div className="stack" style={{ gap: 14 }}>
-        <KV items={[['Agency', i.org_name], ['Period', `${date(i.period_start)} – ${date(i.period_end)}`], ['Status', <StatusPill key="s" status={i.status} />], ['Attempts', i.attempts], ['Failure', i.failure_reason ?? '—'], ['Paid', i.paid_at ? date(i.paid_at) : '—']]} />
-        <table className="table"><tbody>{(i.lines?.length ? i.lines : [{ label: `Seats — ${i.seat_days} seat-days`, amount_cents: i.subtotal_cents }]).map((l: any, k: number) => <tr key={k}><td>{l.label}</td><td className="money">{money(l.amount_cents)}</td></tr>)}<tr><td className="bold">Total</td><td className="money bold">{money(i.total_cents)}</td></tr></tbody></table>
-      </div>}
-    </Drawer>
+    <Dialog open={!!id} onClose={onClose} title={i ? `Invoice ${i.number}` : 'Invoice'} wide
+      footer={i && <>
+        <Link to={`/platform/agencies/${i.organization_id}?tab=billing`} className="btn" style={{ marginRight: 'auto' }}>Open agency</Link>
+        {payable && <><Button onClick={() => act(i, 'void')} variant="ghost">Void</Button><Button onClick={() => act(i, 'mark-paid')}>Mark as paid</Button><Button variant="primary" icon={<CreditCard size={15} />} onClick={() => act(i, 'charge')}>Charge {i.card_last4 ? `•••• ${i.card_last4}` : 'card'}</Button></>}
+        {!payable && <Button onClick={onClose}>Close</Button>}
+      </>}>
+      {!i ? <LoadingBlock /> : (
+        <div className="st-invoice">
+          <div className="st-inv-head">
+            <div><div className="tiny muted">BILL TO</div><b>{i.org_name}</b><div className="small muted">{i.billing_email ?? 'No billing email on file'}</div></div>
+            <div style={{ textAlign: 'right' }}><StatusPill status={i.status} /><div className="small muted mt-1">{date(i.period_start)} – {date(i.period_end)}</div>{i.paid_at && <div className="small muted">Paid {date(i.paid_at)}</div>}</div>
+          </div>
+          {i.failure_reason && <Banner tone="danger">Last payment attempt failed: {i.failure_reason} · {i.attempts} attempt{i.attempts === 1 ? '' : 's'}</Banner>}
+          <table className="table st-inv-lines"><thead><tr><th>Description</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead><tbody>
+            {lines.map((l: any, k: number) => <tr key={k}><td>{l.label}</td><td className="money">{money(l.amount_cents)}</td></tr>)}
+          </tbody></table>
+          <div className="st-inv-totals">
+            <div><span>Subtotal</span><span>{money(i.subtotal_cents)}</span></div>
+            {i.discount_cents > 0 && <div><span>Discount</span><span>−{money(i.discount_cents)}</span></div>}
+            <div><span>Tax</span><span>{money(i.tax_cents)}</span></div>
+            <div className="total"><span>Total</span><span>{money(i.total_cents)}</span></div>
+          </div>
+          <div className="tiny muted">{i.seat_days} seat-days · average {Number(i.avg_seats ?? 0).toFixed(1)} seats · card on file {i.card_last4 ? `${i.card_brand ?? 'Card'} •••• ${i.card_last4}` : 'none'}</div>
+        </div>
+      )}
+    </Dialog>
   );
 }
 

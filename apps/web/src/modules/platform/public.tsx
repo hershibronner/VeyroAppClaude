@@ -7,6 +7,7 @@ import { useApi, useInterval } from '../../lib/hooks';
 import { relTime } from '../../lib/format';
 import { Avatar, Button, EmptyState, Menu, PermissionDenied } from '../../components/ui';
 import { VeyroMark, ImpersonationBar } from '../../components/Shell';
+import { CommandSearch } from './CommandSearch';
 import '../settings/settings.css';
 
 const Overview = lazy(() => import('./Overview'));
@@ -67,7 +68,8 @@ function PlatformShell() {
       <div className="st-pmain">
         <header className="st-ptop">
           <button className="icon-btn st-pmenu" aria-label="Open menu" onClick={() => setOpen(true)}><MenuIcon size={20} /></button>
-          <span className="bold" style={{ flex: 1 }}>Platform Control Center</span>
+          <span className="bold st-ptitle">Platform Control Center</span>
+          <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}><CommandSearch pages={NAV.flatMap(g => g.items.map(i => ({ to: i.to, label: i.label, group: g.group })))} /></div>
           <PlatformBell />
           {me.workspace && <Link to="/" className="btn btn-sm desktop-only">Open {me.workspace.org.name}</Link>}
           <Menu label="Account menu" trigger={<button className="user-chip" aria-label="Account menu"><Avatar name={me.user.name} color={me.user.avatar_color} size={30} /><span className="user-name desktop-only">{me.user.name}</span></button>} items={[
