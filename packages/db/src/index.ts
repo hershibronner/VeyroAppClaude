@@ -13,7 +13,10 @@ pg.types.setTypeParser(1700, (v) => parseFloat(v));
 pg.types.setTypeParser(1082, (v) => v);
 
 export function createPool(max = 10) {
-  return new pg.Pool({ connectionString: DATABASE_URL, max });
+  const pool = new pg.Pool({ connectionString: DATABASE_URL, max });
+  // An idle client dropped by the server (e.g. Postgres restarting) must not crash the process; the pool reconnects on next use.
+  pool.on('error', (err) => console.error('[db] idle client error:', err.message));
+  return pool;
 }
 export type { Pool, PoolClient } from 'pg';
 export { pg };
