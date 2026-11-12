@@ -93,6 +93,13 @@ async function plugin(app: FastifyInstance) {
     if (!a) return { status: 'approved', self_serve: false };
     return { status: a.approval_status, self_serve: true, org_name: a.org_name, submitted_at: a.submitted_at, rejection_reason: a.rejection_reason, logo_url: signedUrl(a.logo_file, 3600), registration_file_name: a.registration_file_name };
   });
+  app.put('/api/v1/onboarding/application/brand', async (req) => {
+    const ctx = staff(req);
+    if (!['owner', 'admin'].includes(ctx.role.key)) throw new HttpError(403, 'Only the account owner can change the brand');
+    const b = z.object({ primary_color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Pick a valid color') }).parse(req.body);
+    await q(`UPDATE organization_branding SET primary_color=$2, updated_at=now() WHERE organization_id=$1`, [ctx.orgId, b.primary_color]);
+    return { ok: true };
+  });
   app.post('/api/v1/onboarding/application/files', async (req) => {
     const ctx = staff(req);
     if (!['owner', 'admin'].includes(ctx.role.key)) throw new HttpError(403, 'Only the account owner can upload these files');
