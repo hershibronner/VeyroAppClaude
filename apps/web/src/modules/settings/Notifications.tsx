@@ -1,15 +1,27 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
+import { useAuth } from '../../lib/auth';
+import { NotificationPreferences } from '../comms/Notifications';
 import { BellOff } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
 import { toast } from '../../lib/toast';
 import { dateTime } from '../../lib/format';
-import { Button, Card, CardHeader, EmptyState, ErrorState, LoadingBlock, PageHeader, Segmented } from '../../components/ui';
+import { Button, Card, CardHeader, EmptyState, ErrorState, LoadingBlock, PageHeader, Segmented, Tabs } from '../../components/ui';
 import { Gate, ReadOnlyNote } from './common';
 
 export default function NotificationSettings() {
-  return <Gate resource="settings">{editable => <Inner editable={editable} />}</Gate>;
+  const { can } = useAuth();
+  const [sp, setSp] = useSearchParams();
+  const team = can('settings', 'view');
+  const tab = team && sp.get('tab') === 'team' ? 'team' : 'mine';
+  return (
+    <div className="stack">
+      <PageHeader title="Notifications" sub="Choose what you hear about, and whether it arrives in the app, by email, or by SMS (coming soon)." />
+      {team && <Tabs value={tab} onChange={k => { const n = new URLSearchParams(sp); k === 'team' ? n.set('tab', 'team') : n.delete('tab'); setSp(n, { replace: true }); }} tabs={[{ key: 'mine', label: 'My notifications' }, { key: 'team', label: 'Team subscriptions' }]} />}
+      {tab === 'mine' ? <NotificationPreferences /> : <Gate resource="settings">{editable => <Inner editable={editable} />}</Gate>}
+    </div>
+  );
 }
 
 function Inner({ editable }: { editable: boolean }) {
@@ -32,10 +44,10 @@ function Inner({ editable }: { editable: boolean }) {
   };
   return (
     <div className="stack">
-      <PageHeader title="Notifications" sub="Admin event subscriptions: who gets notified about agency-wide events, in addition to the people directly involved." actions={editable && <><Button disabled={!changes.length} onClick={() => setSubs(new Set(base))}>Discard</Button><Button variant="primary" disabled={!changes.length} loading={busy} onClick={save}>Save {changes.length || ''} change{changes.length === 1 ? '' : 's'}</Button></>} />
+      <div className="row" style={{ justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}><span className="small muted">Who else hears about agency-wide events, on top of the people directly involved. They receive them through their own channel choices.</span>{editable && <span className="row" style={{ gap: 8 }}><Button disabled={!changes.length} onClick={() => setSubs(new Set(base))}>Discard</Button><Button variant="primary" disabled={!changes.length} loading={busy} onClick={save}>Save {changes.length || ''} change{changes.length === 1 ? '' : 's'}</Button></span>}</div>
       <ReadOnlyNote show={!editable} />
       <Card>
-        <CardHeader title="Event subscriptions" sub={<>Each person's own delivery channels (in-app, email, push) are set in <Link to="/comms/notifications">Communications → Notifications</Link>.</>} right={<Segmented value={who} onChange={setWho} options={[{ key: 'admins', label: 'Owners, admins & management' }, { key: 'all', label: 'All staff' }]} />} />
+        <CardHeader title="Event subscriptions" sub="Tick a person to send them an event even when they are not directly involved."  right={<Segmented value={who} onChange={setWho} options={[{ key: 'admins', label: 'Owners, admins & management' }, { key: 'all', label: 'All staff' }]} />} />
         <div className="st-matrix">
           <table>
             <thead><tr><th>Event</th><th>Last 30 days</th>{members.map((m: any) => <th key={m.id} title={m.email}><div>{m.name.split(' ')[0]}</div><div className="tiny" style={{ fontWeight: 400 }}>{m.role_name}</div></th>)}</tr></thead>

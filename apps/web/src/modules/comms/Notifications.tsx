@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Bell, CheckCheck, Save, BellOff } from 'lucide-react';
+import { Bell, CheckCheck, Save } from 'lucide-react';
 import { useApi } from '../../lib/hooks';
 import { api } from '../../lib/api';
 import { realtime } from '../../lib/realtime';
 import { toast } from '../../lib/toast';
 import { relTime, dateTime, humanize } from '../../lib/format';
-import { Button, Card, CardHeader, EmptyState, ErrorState, LoadingBlock, PageHeader, Tabs, Banner } from '../../components/ui';
+import { Button, Card, CardHeader, EmptyState, ErrorState, LoadingBlock, PageHeader, Tabs } from '../../components/ui';
 import '../home/insights.css';
 
 export function NotificationsPage({ feedUrl, title = 'Notifications' }: { feedUrl: string; title?: string }) {
@@ -16,7 +16,7 @@ export function NotificationsPage({ feedUrl, title = 'Notifications' }: { feedUr
     <div>
       <PageHeader title={title} sub="Live alerts for the events you care about, and how you want to receive them." />
       <Tabs value={tab} onChange={k => { const n = new URLSearchParams(sp); n.set('tab', k); setSp(n, { replace: true }); }} tabs={[{ key: 'inbox', label: 'All notifications' }, { key: 'preferences', label: 'Preferences' }]} />
-      <div className="mt-3">{tab === 'inbox' ? <Feed feedUrl={feedUrl} /> : <Preferences />}</div>
+      <div className="mt-3">{tab === 'inbox' ? <Feed feedUrl={feedUrl} /> : <NotificationPreferences />}</div>
     </div>
   );
 }
@@ -59,46 +59,68 @@ function Feed({ feedUrl }: { feedUrl: string }) {
   );
 }
 
-function Preferences() {
-  const st = useApi<{ events: { event: string; label: string; group: string; in_app: boolean; email: boolean; push: boolean }[] }>('/api/v1/notification-preferences');
-  const [rows, setRows] = useState<any[]>([]);
+type Pref = { event: string; label: string; group: string; description: string | null; default_email: boolean; in_app: boolean; email: boolean; sms: boolean };
+const CHANNELS = [{ key: 'in_app', label: 'In-app' }, { key: 'email', label: 'Email' }, { key: 'sms', label: 'SMS' }] as const;
+
+/** Per-person delivery choices for every event: in-app, email, and SMS (coming soon). */
+export function NotificationPreferences() {
+  const st = useApi<{ events: Pref[]; groups: string[]; email: string; sms_available: boolean }>('/api/v1/notification-preferences');
+  const [rows, setRows] = useState<Pref[]>([]);
   const [busy, setBusy] = useState(false);
+  const [q, setQ] = useState('');
   useEffect(() => { if (st.data) setRows(st.data.events); }, [st.data]);
-  const groups = useMemo(() => [...new Set(rows.map(r => r.group))], [rows]);
-  const dirty = st.data && JSON.stringify(st.data.events) !== JSON.stringify(rows);
-  const pushState = typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported';
-  const set = async (ev: string, k: 'in_app' | 'email' | 'push', v: boolean) => {
-    if (k === 'push' && v && 'Notification' in window && Notification.permission === 'default') {
-      const p = await Notification.requestPermission();
-      if (p !== 'granted') toast.info('Browser notifications were not allowed — push will be logged but your browser will not show it.');
-    }
-    setRows(rs => rs.map(r => (r.event === ev ? { ...r, [k]: v } : r)));
-  };
+  const groups = useMemo(() => (st.data?.groups ?? []).filter(g => rows.some(r => r.group === g)), [rows, st.data]);
+  const changed = useMemo(() => rows.filter(r => { const o = st.data?.events.find(x => x.event === r.event); return o && (o.in_app !== r.in_app || o.email !== r.email); }), [rows, st.data]);
+  const smsOn = !!st.data?.sms_available;
+  const set = (ev: string, k: 'in_app' | 'email' | 'sms', v: boolean) => setRows(rs => rs.map(r => (r.event === ev ? { ...r, [k]: v } : r)));
+  const setGroup = (g: string, k: 'in_app' | 'email', v: boolean) => setRows(rs => rs.map(r => (r.group === g ? { ...r, [k]: v } : r)));
+  const setAll = (k: 'in_app' | 'email', v: boolean) => setRows(rs => rs.map(r => ({ ...r, [k]: v })));
+  const reset = () => setRows(rs => rs.map(r => ({ ...r, in_app: true, email: r.default_email, sms: false })));
   const save = async () => {
     setBusy(true);
-    try { await api.put('/api/v1/notification-preferences', { prefs: rows.map(r => ({ event: r.event, in_app: r.in_app, email: r.email, push: r.push })) }); toast.success('Preferences saved'); st.reload(); } catch (e) { toast.error(e); } finally { setBusy(false); }
+    try { await api.put('/api/v1/notification-preferences', { prefs: rows.map(r => ({ event: r.event, in_app: r.in_app, email: r.email, sms: r.sms })) }); toast.success('Notification settings saved'); st.reload(); } catch (e) { toast.error(e); } finally { setBusy(false); }
   };
   if (st.error && !st.data) return <ErrorState error={st.error} retry={st.reload} />;
   if (!st.data) return <LoadingBlock rows={8} />;
+  const ql = q.trim().toLowerCase();
+  const visible = (r: Pref) => !ql || r.label.toLowerCase().includes(ql) || r.group.toLowerCase().includes(ql) || (r.description ?? '').toLowerCase().includes(ql);
+  const emailCount = rows.filter(r => r.email).length;
   return (
-    <Card>
-      <CardHeader title="Delivery preferences" sub="In-app shows in the bell and here. Email copies go to your inbox (Dev Outbox in demo mode)." right={<Button variant="primary" icon={<Save size={15} />} loading={busy} disabled={!dirty} onClick={save}>Save preferences</Button>} />
-      {pushState === 'denied' && <div style={{ padding: '0 18px' }}><Banner tone="warn" icon={<BellOff size={18} />}>Browser notifications are blocked for this site. Allow them in your browser settings to receive push alerts.</Banner></div>}
-      <div className="ins-table-scroll">
-        <table className="table">
-          <thead><tr><th>Event</th><th style={{ textAlign: 'center' }}>In-app</th><th style={{ textAlign: 'center' }}>Email</th><th style={{ textAlign: 'center' }}>Push</th></tr></thead>
-          <tbody>{groups.map(g => [
-            <tr key={g}><td colSpan={4} className="tiny muted bold" style={{ textTransform: 'uppercase', letterSpacing: '.04em', background: 'var(--bg-2)' }}>{g}</td></tr>,
-            ...rows.filter(r => r.group === g).map(r => (
-              <tr key={r.event}>
-                <td>{r.label}</td>
-                {(['in_app', 'email', 'push'] as const).map(k => <td key={k} style={{ textAlign: 'center' }}><input type="checkbox" aria-label={`${r.label} — ${k.replace('_', '-')}`} checked={r[k]} onChange={e => set(r.event, k, e.target.checked)} /></td>)}
-              </tr>
-            )),
-          ])}</tbody>
-        </table>
-      </div>
-    </Card>
+    <div className="stack">
+      <Card>
+        <CardHeader title="How you get notified" sub={<>In-app alerts show in the bell. Emails go to <b>{st.data.email}</b> — {emailCount} of {rows.length} events are emailed. SMS is coming soon.</>}
+          right={<div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <Button size="sm" onClick={() => setAll('email', false)}>Turn off all emails</Button>
+            <Button size="sm" onClick={reset}>Reset to defaults</Button>
+            <Button variant="primary" size="sm" icon={<Save size={14} />} loading={busy} disabled={!changed.length && JSON.stringify(rows) === JSON.stringify(st.data.events)} onClick={save}>Save{changed.length ? ` ${changed.length} change${changed.length === 1 ? '' : 's'}` : ''}</Button>
+          </div>} />
+        <div style={{ padding: '0 18px 14px' }}><input className="input" placeholder="Search events — e.g. lead, timesheet, invoice" value={q} onChange={e => setQ(e.target.value)} aria-label="Search events" /></div>
+      </Card>
+      {groups.map(g => {
+        const list = rows.filter(r => r.group === g && visible(r));
+        if (!list.length) return null;
+        const all = rows.filter(r => r.group === g);
+        return (
+          <Card key={g}>
+            <div className="ins-table-scroll">
+              <table className="table">
+                <thead><tr><th>{g}</th>{CHANNELS.map(c => (
+                  <th key={c.key} style={{ textAlign: 'center', width: 110 }}>
+                    <div>{c.label}{c.key === 'sms' && !smsOn && <span className="pill pill-gray" style={{ marginLeft: 6 }}>Soon</span>}</div>
+                    {c.key !== 'sms' && <input type="checkbox" aria-label={`All ${g} — ${c.label}`} checked={all.every(r => r[c.key])} ref={el => { if (el) el.indeterminate = all.some(r => r[c.key]) && !all.every(r => r[c.key]); }} onChange={e => setGroup(g, c.key, e.target.checked)} style={{ marginTop: 4 }} />}
+                  </th>))}</tr></thead>
+                <tbody>{list.map(r => (
+                  <tr key={r.event}>
+                    <td><div>{r.label}</div>{r.description && <div className="tiny muted">{r.description}</div>}</td>
+                    {CHANNELS.map(c => <td key={c.key} style={{ textAlign: 'center' }}><input type="checkbox" aria-label={`${r.label} — ${c.label}`} checked={c.key === 'sms' && !smsOn ? false : r[c.key]} disabled={c.key === 'sms' && !smsOn} title={c.key === 'sms' && !smsOn ? 'SMS notifications are coming soon' : undefined} onChange={e => set(r.event, c.key, e.target.checked)} style={{ width: 16, height: 16, accentColor: 'var(--primary)' }} /></td>)}
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          </Card>
+        );
+      })}
+    </div>
   );
 }
 

@@ -1,6 +1,8 @@
 import { q, type Db, pool } from './db';
 import { publishUser } from './realtime';
 import { sendMessage } from '../adapters/messaging';
+import { defaultDelivery } from './notificationCatalog';
+import { WEB_URL } from './settings';
 
 export interface NotifyInput { event: string; title: string; body?: string | null; link?: string | null }
 
@@ -17,16 +19,21 @@ export async function notify(orgId: string, userIds: (string | null | undefined)
   const prefs = await q<any>(`SELECT user_id, in_app, email, push FROM notification_preferences WHERE organization_id=$1 AND event=$2 AND user_id = ANY($3)`, [orgId, n.event, ids], db);
   const out = [];
   for (const uid of ids) {
-    const p = prefs.find(x => x.user_id === uid) ?? { in_app: true, email: false, push: false };
+    const p = prefs.find(x => x.user_id === uid) ?? { ...defaultDelivery(n.event), push: false };
     if (p.in_app) {
       const r = await q<any>(`INSERT INTO notifications (organization_id, user_id, event, title, body, link) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`, [orgId, uid, n.event, n.title, n.body ?? null, n.link ?? null], db);
       publishUser(uid, orgId, 'notification', r[0]);
       out.push(r[0]);
     }
+    // SMS preferences are stored but not sent yet (coming soon). Email/push failures never break the action that triggered them.
     if (p.email || p.push) {
-      const u = (await q<any>(`SELECT email FROM users WHERE id=$1`, [uid], db))[0];
-      if (u && p.email) await sendMessage({ orgId, channel: 'email', to: u.email, subject: n.title, text: `${n.title}\n\n${n.body ?? ''}${n.link ? `\n\nOpen: http://localhost:3100${n.link}` : ''}` }, db);
-      if (u && p.push) await sendMessage({ orgId, channel: 'push', to: u.email, subject: n.title, text: n.body ?? n.title }, db);
+      try {
+        const u = (await q<any>(`SELECT email, name FROM users WHERE id=$1`, [uid], db))[0];
+        const link = n.link ? (n.link.startsWith('http') ? n.link : `${WEB_URL}${n.link}`) : null;
+        const text = `Hi ${u?.name?.split(/\s+/)[0] || 'there'},\n\n${n.title}${n.body ? `\n\n${n.body}` : ''}${link ? `\n\nOpen it here: ${link}` : ''}\n\nYou can change which emails you get in Settings → Notifications: ${WEB_URL}/settings/notifications`;
+        if (u && p.email) await sendMessage({ orgId, channel: 'email', to: u.email, subject: n.title, text }, db);
+        if (u && p.push) await sendMessage({ orgId, channel: 'push', to: u.email, subject: n.title, text: n.body ?? n.title }, db);
+      } catch (err: any) { console.error(`[notify] ${n.event} delivery to ${uid} failed: ${err?.message ?? err}`); }
     }
   }
   return out;

@@ -6,6 +6,7 @@ import { auth, staff, need, getOr404, type Ctx } from '../core/context';
 import { conflict, notFound } from '../core/errors';
 import { audit } from '../core/audit';
 import { listParams, paged } from '../core/list';
+import { NOTIFICATION_CATALOG, NOTIFICATION_GROUPS, defaultDelivery } from '../core/notificationCatalog';
 import { render } from '../core/templates';
 import { sendTemplate } from '../adapters/messaging';
 import { WEB_URL } from '../core/settings';
@@ -51,21 +52,8 @@ async function recordVars(ctx: Ctx, type?: string, id?: string) {
 }
 
 // Notification events users can configure (§8.13). Any other event that has reached the user is added dynamically.
-export const NOTIFICATION_EVENTS: { event: string; label: string; group: string }[] = [
-  { event: 'application.new', label: 'New public application', group: 'Recruiting' }, { event: 'application.created', label: 'New application on my positions', group: 'Recruiting' },
-  { event: 'candidate.assigned', label: 'Candidate assigned to me', group: 'Recruiting' }, { event: 'mention', label: '@mentioned in a note', group: 'General' },
-  { event: 'task.assigned', label: 'Task assigned to me', group: 'Tasks' }, { event: 'task.due', label: 'Task due', group: 'Tasks' }, { event: 'task.overdue', label: 'Task overdue', group: 'Tasks' },
-  { event: 'interview.upcoming', label: 'Interview upcoming', group: 'Recruiting' }, { event: 'interview.changed', label: 'Interview changed', group: 'Recruiting' },
-  { event: 'position.new', label: 'New position for me', group: 'Recruiting' }, { event: 'client.feedback', label: 'Client feedback on a submission', group: 'Recruiting' },
-  { event: 'placement.started', label: 'Placement started', group: 'Workforce' }, { event: 'activation.blocker', label: 'Activation blocked', group: 'Workforce' },
-  { event: 'onboarding.missing', label: 'Missing onboarding items', group: 'Workforce' }, { event: 'attendance.late', label: 'Worker late', group: 'Workforce' }, { event: 'attendance.absent', label: 'Worker absent', group: 'Workforce' },
-  { event: 'timesheet.submitted', label: 'Timesheet submitted', group: 'Time' }, { event: 'timesheet.approved', label: 'Timesheet approved', group: 'Time' }, { event: 'timesheet.rejected', label: 'Timesheet rejected', group: 'Time' },
-  { event: 'invoice.sent', label: 'Invoice sent', group: 'Finance' }, { event: 'invoice.paid', label: 'Invoice paid', group: 'Finance' }, { event: 'invoice.overdue', label: 'Invoice overdue', group: 'Finance' },
-  { event: 'payout.failed', label: 'Payout failed', group: 'Finance' }, { event: 'document.expiring', label: 'Document expiring', group: 'Documents' }, { event: 'document.signed', label: 'Document signed', group: 'Documents' },
-  { event: 'signature.requested', label: 'Signature requested from me', group: 'Documents' }, { event: 'message', label: 'New message', group: 'General' },
-  { event: 'automation.approval', label: 'Automation waiting for approval', group: 'General' }, { event: 'integration.error', label: 'Integration error', group: 'General' },
-];
-const PORTAL_EVENTS = new Set(['message', 'task.assigned', 'timesheet.approved', 'timesheet.rejected', 'invoice.sent', 'document.expiring', 'signature.requested', 'document.signed', 'interview.upcoming']);
+/** Kept for existing importers; the full list lives in core/notificationCatalog. */
+export const NOTIFICATION_EVENTS = NOTIFICATION_CATALOG.map(({ event, label, group }) => ({ event, label, group }));
 
 async function feed(req: FastifyRequest, ctx: Ctx) {
   const lp = listParams(req);
@@ -197,16 +185,19 @@ export default async function (app: FastifyInstance) {
   // ── Notification preferences (any signed-in user, incl. portal users) ──
   app.get('/api/v1/notification-preferences', async (req) => {
     const ctx = auth(req);
-    const prefs = await q<any>(`SELECT event, in_app, email, push, subscribed FROM notification_preferences WHERE organization_id=$1 AND user_id=$2`, [ctx.orgId, ctx.userId]);
+    const prefs = await q<any>(`SELECT event, in_app, email, sms FROM notification_preferences WHERE organization_id=$1 AND user_id=$2`, [ctx.orgId, ctx.userId]);
     const seen = await q<any>(`SELECT DISTINCT event FROM notifications WHERE organization_id=$1 AND user_id=$2`, [ctx.orgId, ctx.userId]);
-    const base = ctx.role.kind === 'agency' ? NOTIFICATION_EVENTS : NOTIFICATION_EVENTS.filter(e => PORTAL_EVENTS.has(e.event));
-    const all = [...base, ...seen.filter(s => !base.some(e => e.event === s.event)).map(s => ({ event: s.event, label: s.event.replace(/[._]/g, ' ').replace(/^\w/, (c: string) => c.toUpperCase()), group: 'Other' }))];
-    return { events: all.map(e => { const p = prefs.find(x => x.event === e.event); return { ...e, in_app: p?.in_app ?? true, email: p?.email ?? false, push: p?.push ?? false }; }) };
+    const base = ctx.role.kind === 'agency' ? NOTIFICATION_CATALOG : NOTIFICATION_CATALOG.filter(e => e.portal);
+    const extra = seen.filter(s => !base.some(e => e.event === s.event)).map(s => ({ event: s.event, label: s.event.replace(/[._]/g, ' ').replace(/^\w/, (c: string) => c.toUpperCase()), group: 'Other' }));
+    const events = [...base, ...extra].map(e => { const p = prefs.find(x => x.event === e.event); const d = defaultDelivery(e.event); return { event: e.event, label: e.label, group: e.group, description: (e as any).description ?? null, default_email: d.email, in_app: p?.in_app ?? d.in_app, email: p?.email ?? d.email, sms: p?.sms ?? false }; });
+    return { events, groups: [...NOTIFICATION_GROUPS, 'Other'], email: ctx.user.email, sms_available: false };
   });
   app.put('/api/v1/notification-preferences', async (req) => {
     const ctx = auth(req);
-    const b = z.object({ prefs: z.array(z.object({ event: z.string().min(1).max(80), in_app: z.boolean(), email: z.boolean(), push: z.boolean() })).max(200) }).parse(req.body);
-    for (const p of b.prefs) await q(`INSERT INTO notification_preferences (user_id, organization_id, event, in_app, email, push) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (user_id, organization_id, event) DO UPDATE SET in_app=$4, email=$5, push=$6`, [ctx.userId, ctx.orgId, p.event, p.in_app, p.email, p.push]);
+    const b = z.object({ prefs: z.array(z.object({ event: z.string().min(1).max(80), in_app: z.boolean(), email: z.boolean(), sms: z.boolean().optional() })).max(300) }).parse(req.body);
+    await tx(async c => {
+      for (const p of b.prefs) await c.query(`INSERT INTO notification_preferences (user_id, organization_id, event, in_app, email, sms) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (user_id, organization_id, event) DO UPDATE SET in_app=$4, email=$5, sms=$6`, [ctx.userId, ctx.orgId, p.event, p.in_app, p.email, p.sms ?? false]);
+    });
     return { ok: true, saved: b.prefs.length };
   });
   app.get('/api/v1/notification-preferences/feed', async (req) => { const ctx = staff(req); return feed(req, ctx); });
