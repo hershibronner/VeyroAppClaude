@@ -5,11 +5,11 @@ import { z } from 'zod';
 import { ensureOrgDefaults } from '@veyro/db';
 import { one, q, tx } from './db';
 import { auth, resolveCtx, SESSION_COOKIE, type Ctx } from './context';
-import { badRequest, forbidden, notFound, unauthorized, conflict } from './errors';
+import { badRequest, forbidden, notFound, unauthorized, conflict, HttpError } from './errors';
 import { audit } from './audit';
 import { rateLimit } from './ratelimit';
 import { IS_PROD } from './env';
-import { sendTemplate } from '../adapters/messaging';
+import { sendTemplate, emailDelivery } from '../adapters/messaging';
 import { notifyPlatform } from '../modules/_admin/common';
 import { WEB_URL } from './settings';
 import { signedUrl } from './storage';
@@ -144,6 +144,45 @@ export default async function authRoutes(app: FastifyInstance) {
     return mePayload(ctx!);
   });
 
+  // Sign-up email verification: a 6-digit code is emailed; confirming it issues a one-time token /auth/register requires.
+  const codeHash = (email: string, code: string) => crypto.createHash('sha256').update(`${email.toLowerCase()}:${code}:${process.env.FILE_SIGNING_SECRET ?? 'veyro'}`).digest('hex');
+  app.post('/api/v1/auth/signup/send-code', { config: { public: true } }, async (req) => {
+    const b = z.object({ email: z.string().trim().email('Enter a valid email'), name: z.string().trim().max(80).optional() }).parse(req.body);
+    const email = b.email.toLowerCase();
+    await rateLimit(`signup-code:${req.ip}`, 10, 600);
+    await rateLimit(`signup-code:${email}`, 5, 3600);
+    if (await one(`SELECT 1 FROM users WHERE lower(email)=$1`, [email])) throw conflict('An account with this email already exists. Sign in instead, or use "Forgot password".');
+    // Hosted without an email provider there is no way to read the code, so verification is skipped (logged) until
+    // RESEND_API_KEY + EMAIL_FROM are configured. Locally the code lands in the Dev Outbox.
+    if (IS_PROD && !emailDelivery()) {
+      const token = crypto.randomBytes(24).toString('base64url');
+      await q(`INSERT INTO email_verifications (email, code_hash, token, expires_at, verified_at, ip) VALUES ($1,'skipped',$2, now() + interval '10 minutes', now(), $3)`, [email, token, req.ip]);
+      console.warn(`[email] verification skipped for ${email}: no email provider configured`);
+      return { ok: true, skipped: true, token };
+    }
+    const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+    await q(`UPDATE email_verifications SET expires_at=now() WHERE lower(email)=$1 AND verified_at IS NULL AND expires_at > now()`, [email]);
+    await q(`INSERT INTO email_verifications (email, code_hash, expires_at, ip) VALUES ($1,$2, now() + interval '10 minutes', $3)`, [email, codeHash(email, code), req.ip]);
+    const msg = await sendTemplate(null, 'signup_verify_code', email, { code, user: { name: b.name?.split(/\s+/)[0] || 'there' } });
+    if (msg?.delivery_status === 'failed') throw new HttpError(502, 'We could not send the email right now — check the address or try again in a minute.');
+    return { ok: true, delivered: msg?.delivery_status === 'sent', dev_outbox: !emailDelivery() };
+  });
+  app.post('/api/v1/auth/signup/verify-code', { config: { public: true } }, async (req) => {
+    const b = z.object({ email: z.string().trim().email(), code: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code') }).parse(req.body);
+    const email = b.email.toLowerCase();
+    await rateLimit(`signup-verify:${req.ip}`, 30, 600);
+    const v = await one<any>(`SELECT * FROM email_verifications WHERE lower(email)=$1 AND verified_at IS NULL AND expires_at > now() ORDER BY created_at DESC LIMIT 1`, [email]);
+    if (!v) throw badRequest('This code has expired — send a new one.');
+    if (v.attempts >= 5) throw badRequest('Too many wrong attempts — send a new code.');
+    if (v.code_hash !== codeHash(email, b.code)) {
+      await q(`UPDATE email_verifications SET attempts=attempts+1 WHERE id=$1`, [v.id]);
+      throw badRequest(v.attempts >= 4 ? 'Too many wrong attempts — send a new code.' : 'That code is not right — check the email and try again.');
+    }
+    const token = crypto.randomBytes(24).toString('base64url');
+    await q(`UPDATE email_verifications SET verified_at=now(), token=$2 WHERE id=$1`, [v.id, token]);
+    return { ok: true, token };
+  });
+
   // Self-serve sign-up: creates the owner + agency in "pending" state. A VeyroApp platform admin approves it
   // (Platform → Agencies); until then the owner only sees the pending-approval screen.
   app.post('/api/v1/auth/register', { config: { public: true } }, async (req, reply) => {
@@ -152,11 +191,16 @@ export default async function authRoutes(app: FastifyInstance) {
       agencyName: z.string().trim().min(2, 'Enter your business name').max(80), name: z.string().trim().min(2, 'Enter your name').max(80), email: z.string().trim().email('Enter a valid email'), password: z.string().min(8, 'Use at least 8 characters').max(200),
       phone: opt(40), website: opt(200), country: opt(80), team_size: opt(40), active_workers: opt(40), industries: z.array(z.string().max(60)).max(20).default([]),
       previous_software: opt(80), heard_from: opt(120), legal_name: opt(160), registration_number: opt(80),
+      verification_token: z.string().min(10, 'Confirm your email first'),
     }).parse(req.body);
     await rateLimit(`register:${req.ip}`, 10, 3600);
     if (await one(`SELECT 1 FROM users WHERE lower(email)=lower($1)`, [b.email])) throw conflict('An account with this email already exists. Sign in, then use "Create another agency".');
+    const ver = await one<any>(`SELECT id FROM email_verifications WHERE token=$1 AND lower(email)=lower($2) AND verified_at IS NOT NULL AND used_at IS NULL AND verified_at > now() - interval '2 hours'`, [b.verification_token, b.email]);
+    if (!ver) throw badRequest('Please confirm your email again — the verification expired.');
     const org = await tx(async (c) => {
-      const u = (await c.query(`INSERT INTO users (email, name, password_hash, phone, avatar_color) VALUES ($1,$2,$3,$4,'#345CFF') RETURNING *`, [b.email.toLowerCase(), b.name, await bcrypt.hash(b.password, 10), b.phone])).rows[0];
+      const used = await c.query(`UPDATE email_verifications SET used_at=now() WHERE id=$1 AND used_at IS NULL`, [ver.id]);
+      if (!used.rowCount) throw badRequest('Please confirm your email again — the verification was already used.');
+      const u = (await c.query(`INSERT INTO users (email, name, password_hash, phone, avatar_color, email_verified_at) VALUES ($1,$2,$3,$4,'#345CFF', now()) RETURNING *`, [b.email.toLowerCase(), b.name, await bcrypt.hash(b.password, 10), b.phone])).rows[0];
       const o = await createAgency(u.id, b.agencyName, c);
       await c.query(`UPDATE organizations SET approval_status='pending' WHERE id=$1`, [o.id]);
       await c.query(`INSERT INTO agency_applications (organization_id, applicant_user_id, phone, website, country, team_size, active_workers, industries, previous_software, heard_from, legal_name, registration_number) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,

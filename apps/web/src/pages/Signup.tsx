@@ -1,8 +1,8 @@
 // Agency sign-up — "workspace builder": a live preview of the agency's VeyroApp workspace (left) fills in as the
 // owner completes five short stages (right). Submitting creates the account in "pending approval".
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Check, Eye, EyeOff, ImagePlus, FileCheck2, Lock, Mail, User, Building2, Globe, Phone, MapPin, Sparkles, Users, Briefcase, LayoutDashboard, Inbox, BarChart3 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Eye, EyeOff, ImagePlus, FileCheck2, Lock, Mail, User, Building2, Globe, Phone, MapPin, Sparkles, MailCheck, Users, Briefcase, LayoutDashboard, Inbox, BarChart3 } from 'lucide-react';
 import { api, ApiError, setCsrf } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import './signup.css';
@@ -31,11 +31,31 @@ function Pills({ options, value, onChange, multi }: { options: (string | string[
     <button key={k} type="button" className={on ? 'on' : ''} aria-pressed={on} onClick={() => onChange(multi ? (on ? (value as string[]).filter(x => x !== k) : [...(value as string[]), k]) : k)}>{on && <Check size={13} />}{l}</button>); })}</div>;
 }
 
+function CodeBoxes({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
+  const refs = useRef<(HTMLInputElement | null)[]>([]);
+  useEffect(() => { refs.current[Math.min(value.length, 5)]?.focus(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const put = (i: number, raw: string) => {
+    const digits = raw.replace(/\D/g, '');
+    if (!digits) return;
+    const next = (value.slice(0, i) + digits).slice(0, 6);
+    onChange(next); refs.current[Math.min(next.length, 5)]?.focus();
+  };
+  return (
+    <div className="wb-code" onPaste={e => { const d = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6); if (d) { e.preventDefault(); onChange(d); refs.current[Math.min(d.length, 5)]?.focus(); } }}>
+      {Array.from({ length: 6 }, (_, i) => (
+        <input key={i} ref={el => { refs.current[i] = el; }} inputMode="numeric" autoComplete={i === 0 ? 'one-time-code' : 'off'} maxLength={6} aria-label={`Digit ${i + 1}`} disabled={disabled}
+          className={value[i] ? 'filled' : ''} value={value[i] ?? ''} onChange={e => put(i, e.target.value)}
+          onKeyDown={e => { if (e.key === 'Backspace') { e.preventDefault(); const n = value.slice(0, value[i] ? i : Math.max(0, i - 1)); onChange(n); refs.current[Math.max(0, n.length)]?.focus(); } }} />
+      ))}
+    </div>
+  );
+}
+
 export default function SignupPage() {
   const nav = useNavigate();
   const { refresh } = useAuth();
   const [v, setV] = useState({ name: '', email: '', agencyName: '', password: '', phone: '', website: '', country: '', team_size: '', active_workers: '', industries: [] as string[], previous_software: '', legal_name: '', registration_number: '', color: COLORS[0] });
-  const set = (k: keyof typeof v, val: any) => { setV(s => ({ ...s, [k]: val })); setErrs(e => ({ ...e, [k]: '' })); };
+  const set = (k: keyof typeof v, val: any) => { setV(s => ({ ...s, [k]: val })); setErrs(e => ({ ...e, [k]: '' })); if (k === 'email') { setCodeSent(false); setCode(''); setToken(null); } };
   const [stage, setStage] = useState(0);
   const [dir, setDir] = useState<1 | -1>(1);
   const [errs, setErrs] = useState<Record<string, string>>({});
@@ -46,6 +66,14 @@ export default function SignupPage() {
   useEffect(() => () => { if (logoUrl) URL.revokeObjectURL(logoUrl); }, [logoUrl]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Email verification (6-digit code) — required before the account can be created.
+  const [codeSent, setCodeSent] = useState(false);
+  const [code, setCode] = useState('');
+  const [token, setToken] = useState<string | null>(null);
+  const [verifiedEmail, setVerifiedEmail] = useState('');
+  const [devOutbox, setDevOutbox] = useState(false);
+  const [resendIn, setResendIn] = useState(0);
+  useEffect(() => { if (resendIn <= 0) return; const t = setTimeout(() => setResendIn(n => n - 1), 1000); return () => clearTimeout(t); }, [resendIn]);
   const pw = strength(v.password);
   const biz = v.agencyName.trim() || 'Your agency';
 
@@ -56,13 +84,33 @@ export default function SignupPage() {
     if (i === 2) { if (!v.team_size) e.team_size = 'Pick your team size'; if (!v.active_workers) e.active_workers = 'Pick one'; }
     setErrs(e); return !Object.keys(e).length;
   };
-  const go = (to: number) => { if (to > stage && !check(stage)) return; setDir(to > stage ? 1 : -1); setStage(to); setErr(null); };
+  const sendCode = async () => {
+    setBusy(true); setErr(null);
+    try { const r = await api.post<any>('/api/v1/auth/signup/send-code', { email: v.email.trim(), name: v.name.trim() }); if (r.token) { setToken(r.token); setVerifiedEmail(v.email.trim().toLowerCase()); setDir(1); setStage(1); return; } setCodeSent(true); setCode(''); setDevOutbox(!!r.dev_outbox); setResendIn(45); }
+    catch (x) { const msg = x instanceof ApiError ? x.message : 'Could not send the code'; if (/email|account/i.test(msg)) setErrs({ email: msg }); else setErr(msg); }
+    finally { setBusy(false); }
+  };
+  const verifyCode = async (c = code) => {
+    if (!/^\d{6}$/.test(c)) { setErr('Enter the 6-digit code from the email'); return false; }
+    setBusy(true); setErr(null);
+    try { const r = await api.post<any>('/api/v1/auth/signup/verify-code', { email: v.email.trim(), code: c }); setToken(r.token); setVerifiedEmail(v.email.trim().toLowerCase()); return true; }
+    catch (x) { setErr(x instanceof ApiError ? x.message : 'Could not check the code'); setCode(''); return false; }
+    finally { setBusy(false); }
+  };
+  const go = async (to: number) => {
+    if (to > stage && !check(stage)) return;
+    if (stage === 0 && to > 0 && !(token && verifiedEmail === v.email.trim().toLowerCase())) {
+      if (!codeSent) { await sendCode(); return; }
+      if (!(await verifyCode())) return;
+    }
+    setDir(to > stage ? 1 : -1); setStage(to); setErr(null);
+  };
   const submit = async () => {
     for (let i = 0; i < 3; i++) if (!check(i)) { setDir(-1); setStage(i); return; }
     setBusy(true); setErr(null);
     try {
       const { color, ...body } = v;
-      await api.post('/api/v1/auth/register', { ...body, agencyName: v.agencyName.trim(), name: v.name.trim(), email: v.email.trim() });
+      await api.post('/api/v1/auth/register', { ...body, verification_token: token, agencyName: v.agencyName.trim(), name: v.name.trim(), email: v.email.trim() });
       // The new session has its own CSRF token; fetch it without re-rendering the app (which would remount this page).
       const fresh = await api.get<{ csrf: string }>('/api/v1/auth/me'); setCsrf(fresh.csrf);
       await api.put('/api/v1/onboarding/application/brand', { primary_color: color }).catch(() => {});
@@ -77,7 +125,7 @@ export default function SignupPage() {
     } catch (x) {
       const msg = x instanceof ApiError ? x.message : 'Something went wrong — please try again.';
       setErr(msg);
-      if (/email/i.test(msg)) { setErrs({ email: msg }); setDir(-1); setStage(0); }
+      if (/email|verif/i.test(msg)) { setErrs({ email: msg }); setToken(null); setCodeSent(false); setDir(-1); setStage(0); }
     } finally { setBusy(false); }
   };
   const last = stage === STAGES.length - 1;
@@ -119,7 +167,15 @@ export default function SignupPage() {
         <div className="wb-top"><div className="wb-meter"><i style={{ width: `${pct}%` }} /></div><Link to="/login">Have an account? <b>Sign in</b></Link></div>
         <div key={stage} className={`wb-stage ${dir === 1 ? 'fwd' : 'back'}`}>
           <span className="wb-kicker">Step {stage + 1} of {STAGES.length}</span>
-          {stage === 0 && <>
+          {stage === 0 && codeSent && !token && <>
+            <h1>Check your email</h1>
+            <p className="wb-lead">We sent a 6-digit code to <b>{v.email.trim()}</b>. Enter it below to confirm it's you.</p>
+            <CodeBoxes value={code} onChange={c => { setCode(c); setErr(null); if (c.length === 6) verifyCode(c).then(ok => ok && (setDir(1), setStage(1))); }} disabled={busy} />
+            {devOutbox && <div className="wb-summary"><MailCheck size={15} /><span>Real emails aren't switched on here yet — open the <a href="/dev/outbox" target="_blank" rel="noreferrer">Dev Outbox</a> to see the code.</span></div>}
+            <div className="wb-links"><button type="button" className="wb-linkbtn" disabled={resendIn > 0 || busy} onClick={sendCode}>{resendIn > 0 ? `Resend code in ${resendIn}s` : 'Resend code'}</button><button type="button" className="wb-linkbtn" onClick={() => { setCodeSent(false); setCode(''); }}>Use a different email</button></div>
+          </>}
+          {stage === 0 && (!codeSent || token) && <>
+            {token && <div className="wb-verified"><MailCheck size={15} /> {v.email.trim()} confirmed</div>}
             <h1>Create your agency account</h1><p className="wb-lead">You'll use this to sign in and manage your team.</p>
             <F label="Full name" icon={<User size={16} />} error={errs.name}><input autoFocus autoComplete="name" value={v.name} onChange={e => set('name', e.target.value)} placeholder="Jane Smith" /></F>
             <F label="Work email" icon={<Mail size={16} />} error={errs.email} hint="We'll email you here when your account is approved."><input type="email" autoComplete="email" value={v.email} onChange={e => set('email', e.target.value)} placeholder="jane@youragency.com" /></F>
@@ -171,7 +227,7 @@ export default function SignupPage() {
         </div>
         <div className="wb-actions">
           {stage > 0 ? <button type="button" className="wb-btn ghost" onClick={() => go(stage - 1)} disabled={busy}><ArrowLeft size={16} /> Back</button> : <span />}
-          <button type="button" className="wb-btn" onClick={() => (last ? submit() : go(stage + 1))} disabled={busy}>{busy ? <span className="spinner" /> : null}{last ? 'Submit application' : stage === 3 && !logo ? 'Skip for now' : 'Continue'}{!busy && !last && <ArrowRight size={16} />}</button>
+          <button type="button" className="wb-btn" onClick={() => (last ? submit() : go(stage + 1))} disabled={busy}>{busy ? <span className="spinner" /> : null}{last ? 'Submit application' : stage === 0 && !token ? (codeSent ? 'Verify email' : 'Send verification code') : stage === 3 && !logo ? 'Skip for now' : 'Continue'}{!busy && !last && <ArrowRight size={16} />}</button>
         </div>
       </main>
     </div>
