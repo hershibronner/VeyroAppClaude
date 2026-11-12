@@ -122,3 +122,58 @@ Use title case for skills and software. Dates in experience as YYYY-MM or "Prese
   if (opts.fileNote) out.warnings.unshift(opts.fileNote);
   return { model: CLAUDE_MODEL, ...out } as ResumeExtraction;
 }
+
+/* ───────────── Smart import (spreadsheets from other software) ───────────── */
+export interface ImportFieldDef { key: string; label: string; type: string; required?: boolean; options?: string[] }
+export interface ImportSheetPlan { sheet: string; entity: string; confidence: number; mapping: Record<string, string>; notes: string[]; needs_cleanup: boolean }
+
+/** Decides what each sheet holds (positions / candidates / clients / leads / contacts / skip) and maps its columns. */
+export async function claudePlanImport(sheets: { name: string; headers: string[]; sample: string[][]; rows: number }[], entities: Record<string, { label: string; fields: ImportFieldDef[] }>) {
+  const schema = {
+    type: 'object', additionalProperties: false, required: ['sheets'],
+    properties: {
+      sheets: {
+        type: 'array',
+        items: {
+          type: 'object', additionalProperties: false, required: ['sheet', 'entity', 'confidence', 'mapping', 'notes', 'needs_cleanup'],
+          properties: {
+            sheet: { type: 'string' },
+            entity: { type: 'string', enum: [...Object.keys(entities), 'skip'] },
+            confidence: { type: 'number', description: '0-1' },
+            mapping: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['field', 'column'], properties: { field: { type: 'string' }, column: { type: 'string' } } } },
+            notes: { type: 'array', items: { type: 'string' }, description: 'Short, plain-English notes for the recruiter (what was detected, what will be cleaned up)' },
+            needs_cleanup: { type: 'boolean', description: 'True when values need reshaping that a column mapping cannot do (full name in one column, rates like "$5-7/hr", skills in prose, mixed date formats, combined client/position cells)' },
+          },
+        },
+      },
+    },
+  };
+  const system = `You help a staffing agency move its data into VeyroApp from spreadsheets exported from other recruiting software (Bullhorn, Recruit CRM, Zoho Recruit, Google Sheets, etc.).
+For each sheet, decide which VeyroApp record type it contains, or "skip" for summaries, instructions, pivot tables or empty sheets. Then map target fields to the sheet's exact column headers.
+Only map a column when you are confident; each column maps to at most one field. Use the sample rows, not just the header text.
+"clients" are companies the agency already serves; "leads" are prospects; "contacts" are people at client companies; "positions" are open jobs/roles to fill; "candidates" are job seekers / VAs.`;
+  const out = await askJson<{ sheets: (Omit<ImportSheetPlan, 'mapping'> & { mapping: { field: string; column: string }[] })[] }>(system, JSON.stringify({
+    target_types: Object.fromEntries(Object.entries(entities).map(([k, e]) => [k, { label: e.label, fields: e.fields.map(f => ({ key: f.key, label: f.label, type: f.type, required: !!f.required, options: f.options })) }])),
+    sheets: sheets.map(s => ({ sheet: s.name, total_rows: s.rows, headers: s.headers, sample_rows: s.sample.slice(0, 8) })),
+  }), schema);
+  return out.sheets.map(s => {
+    const def = entities[s.entity]; const headers = sheets.find(x => x.name === s.sheet)?.headers ?? [];
+    const mapping: Record<string, string> = {};
+    for (const m of s.mapping) if (def?.fields.some(f => f.key === m.field) && headers.includes(m.column) && !Object.values(mapping).includes(m.column)) mapping[m.field] = m.column;
+    return { ...s, mapping, confidence: Math.max(0, Math.min(1, s.confidence)) } as ImportSheetPlan;
+  });
+}
+
+/** Rewrites raw rows into clean values for the target fields (split names, parse rates, normalise lists/dates/enums). */
+export async function claudeCleanRows(entityLabel: string, fields: ImportFieldDef[], headers: string[], rows: string[][]): Promise<Record<string, string>[]> {
+  const props = Object.fromEntries(fields.map(f => [f.key, { type: 'string', description: `${f.label}${f.options ? ` — one of: ${f.options.join(', ')}` : ''}${f.type === 'money' ? ' — plain number in dollars per hour, e.g. 6.5' : ''}${f.type === 'list' ? ' — items separated by "; "' : ''}${f.type === 'date' ? ' — YYYY-MM-DD' : ''}${f.type === 'number' ? ' — plain number' : ''}. Empty string when unknown.` }]));
+  const schema = {
+    type: 'object', additionalProperties: false, required: ['rows'],
+    properties: { rows: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['row', ...fields.map(f => f.key)], properties: { row: { type: 'integer' }, ...props } } } },
+  };
+  const system = `You clean spreadsheet rows for import into a staffing agency system as ${entityLabel}. Return one object per input row, same "row" number, in the same order.
+Copy facts only from that row — never invent emails, phones, rates or names. Split full names into first/last. Turn "$5-7/hr" into min 5 and max 7. Keep enum values exactly as listed or leave them empty.`;
+  const out = await askJson<{ rows: ({ row: number } & Record<string, string>)[] }>(system, JSON.stringify({ headers, rows: rows.map((r, i) => ({ row: i + 1, values: Object.fromEntries(headers.map((h, ci) => [h, r[ci] ?? ''])) })) }), schema);
+  const byRow = new Map(out.rows.map(r => [r.row, r]));
+  return rows.map((_, i) => { const r = byRow.get(i + 1); const o: Record<string, string> = {}; for (const f of fields) o[f.key] = String(r?.[f.key] ?? '').trim(); return o; });
+}

@@ -3,11 +3,14 @@ import { Navigate, Route, Routes, useLocation, type RouteObject } from 'react-ro
 import { useAuth } from './lib/auth';
 import { Shell } from './components/Shell';
 import { PortalShell, type PortalKind } from './portals/PortalShell';
-import { LoginPage, RegisterPage, ForgotPage, ResetPage, AcceptInvitePage, landingFor } from './pages/Auth';
+import { LoginPage, ForgotPage, ResetPage, AcceptInvitePage, landingFor } from './pages/Auth';
 import { Boundary, EmptyState, LoadingBlock, Button } from './components/ui';
 import { Link } from 'react-router-dom';
+import { OnboardingChecklist } from './modules/onboarding/Checklist';
 
 const ProfilePage = lazy(() => import('./pages/Profile'));
+const SignupPage = lazy(() => import('./pages/Signup'));
+const PendingApproval = lazy(() => import('./pages/PendingApproval'));
 
 // Area route manifests (each area owns src/modules/<area>/{index,portal,public}.tsx and lazy-loads its pages).
 const areaMods = import.meta.glob<{ routes?: RouteObject[] }>('./modules/*/index.tsx', { eager: true });
@@ -26,6 +29,9 @@ function RequireAuth({ kind, children }: { kind: 'agency' | PortalKind; children
   if (!me) return <Navigate to={`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
   if (!me.workspace) return <Navigate to={me.isPlatformAdmin ? '/platform' : '/login'} replace />;
   if (me.workspace.role.kind !== kind) return <Navigate to={landingFor(me)} replace />;
+  // Self-serve agencies wait for VeyroApp approval (support mode / impersonation still sees the workspace).
+  const approval = (me.workspace as any).approval?.status;
+  if (kind === 'agency' && approval && approval !== 'approved' && !me.impersonator) return <Suspense fallback={<Splash />}><PendingApproval /></Suspense>;
   return <>{children}</>;
 }
 
@@ -45,7 +51,8 @@ export default function App() {
   return (
     <Routes key={orgKey}>
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/register" element={<RegisterPage />} />
+      <Route path="/register" element={<Suspense fallback={<Splash />}><SignupPage /></Suspense>} />
+      <Route path="/signup" element={<Navigate to="/register" replace />} />
       <Route path="/forgot-password" element={<ForgotPage />} />
       <Route path="/reset-password" element={<ResetPage />} />
       <Route path="/invite/:token" element={<AcceptInvitePage />} />
@@ -56,7 +63,7 @@ export default function App() {
           <Route path="*" element={<NotFound />} />
         </Route>
       ))}
-      <Route path="/" element={<RequireAuth kind="agency"><Shell /></RequireAuth>}>
+      <Route path="/" element={<RequireAuth kind="agency"><Shell /><OnboardingChecklist /></RequireAuth>}>
         {renderRoutes(AGENCY_ROUTES)}
         <Route path="profile" element={<Suspense fallback={<LoadingBlock />}><ProfilePage /></Suspense>} />
         <Route path="*" element={<NotFound />} />

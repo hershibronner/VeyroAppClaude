@@ -24,7 +24,7 @@ function TeamInner({ editable }: { editable: boolean }) {
   const tab = (sp.get('tab') as 'members' | 'invitations') || 'members';
   const summary = useApi<any>('/api/v1/team/summary');
   const roles = useApi<any[]>('/api/v1/roles?kind=agency');
-  const [invite, setInvite] = useState(false);
+  const [invite, setInvite] = useState(() => sp.get('invite') === '1');
   const [edit, setEdit] = useState<any>(null);
   const [rk, setRk] = useState(0);
   const confirm = useConfirm();

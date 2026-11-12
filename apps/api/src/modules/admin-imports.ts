@@ -17,7 +17,7 @@ import { isUuid } from './_admin/common';
 import { fieldError } from './_admin/common';
 import type { Resource } from '@veyro/shared';
 
-const RES: Record<string, Resource> = { leads: 'leads', clients: 'clients', contacts: 'contacts', candidates: 'candidates', workers: 'workers', placements: 'placements', rates: 'rates' };
+const RES: Record<string, Resource> = { leads: 'leads', clients: 'clients', contacts: 'contacts', candidates: 'candidates', positions: 'positions', workers: 'workers', placements: 'placements', rates: 'rates' };
 const MAX_ROWS = 20000;
 const BATCH = 20;
 
@@ -60,6 +60,7 @@ async function dryRun(ctx: Ctx, job: any) {
             else { action = 'skip_duplicate'; warn.push(`Already exists: "${ex.dup.label}" (matched by ${ex.dup.by})`); }
           }
           if (entity === 'contacts' && (m.values.company_name || m.values.company_legacy_id) && !(await findCompany(ctx.orgId, { name: m.values.company_name, legacy: m.values.company_legacy_id }, client))) warn.push(`Company "${m.values.company_name ?? m.values.company_legacy_id}" not found — contact will be created without a company`);
+          if (entity === 'positions' && m.values.company_name && !(await findCompany(ctx.orgId, { name: m.values.company_name }, client))) warn.push(`Client "${m.values.company_name}" not found — position will be created without a client`);
         }
         for (const k of fileKeys(entity, m.values)) if (!seen.has(k)) seen.set(k, r.row_number);
       }

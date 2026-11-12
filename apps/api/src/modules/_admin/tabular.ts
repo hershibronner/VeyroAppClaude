@@ -50,7 +50,7 @@ function unzip(buf: Buffer): Map<string, Buffer> {
     const lNameLen = buf.readUInt16LE(local + 26), lExtraLen = buf.readUInt16LE(local + 28);
     const start = local + 30 + lNameLen + lExtraLen;
     const data = buf.subarray(start, start + csize);
-    if (/^xl\/(sharedStrings\.xml|worksheets\/sheet\d+\.xml|workbook\.xml)$/.test(name)) files.set(name, method === 8 ? zlib.inflateRawSync(data) : Buffer.from(data));
+    if (/^xl\/(sharedStrings\.xml|worksheets\/[^/]+\.xml|workbook\.xml|_rels\/workbook\.xml\.rels)$/.test(name)) files.set(name, method === 8 ? zlib.inflateRawSync(data) : Buffer.from(data));
     p += 46 + nameLen + extraLen + commentLen;
   }
   return files;
@@ -60,28 +60,44 @@ function colIndex(ref: string) { let n = 0; for (const ch of ref.replace(/\d+/g,
 function excelDate(serial: number) { const d = new Date(Date.UTC(1899, 11, 30) + Math.round(serial * 86400000)); return d.toISOString().slice(0, 10); }
 
 export function parseXlsx(buf: Buffer): string[][] {
+  const sheets = parseXlsxSheets(buf);
+  if (!sheets.length) throw new Error('The workbook has no worksheets');
+  return sheets[0].rows;
+}
+
+/** Every worksheet in workbook order, with its tab name. Empty sheets are skipped. */
+export function parseXlsxSheets(buf: Buffer): { name: string; rows: string[][] }[] {
   const files = unzip(buf);
   const shared: string[] = [];
   const ss = files.get('xl/sharedStrings.xml')?.toString('utf8') ?? '';
   for (const si of ss.match(/<si>[\s\S]*?<\/si>/g) ?? []) shared.push(unescapeXml((si.match(/<t[^>]*>([\s\S]*?)<\/t>/g) ?? []).map(t => t.replace(/<t[^>]*>|<\/t>/g, '')).join('')));
-  const sheetName = [...files.keys()].filter(k => k.startsWith('xl/worksheets/')).sort()[0];
-  if (!sheetName) throw new Error('The workbook has no worksheets');
-  const xml = files.get(sheetName)!.toString('utf8');
-  const rows: string[][] = [];
-  for (const r of xml.match(/<row[^>]*>[\s\S]*?<\/row>/g) ?? []) {
-    const row: string[] = [];
-    for (const c of r.match(/<c [^>]*?(?:\/>|>[\s\S]*?<\/c>)/g) ?? []) {
-      const ref = c.match(/ r="([A-Z]+\d+)"/)?.[1]; const t = c.match(/ t="(\w+)"/)?.[1]; const s = c.match(/ s="(\d+)"/)?.[1];
-      const v = c.match(/<v>([\s\S]*?)<\/v>/)?.[1]; const is = c.match(/<is>[\s\S]*?<t[^>]*>([\s\S]*?)<\/t>/)?.[1];
-      let val = '';
-      if (t === 's' && v !== undefined) val = shared[Number(v)] ?? '';
-      else if (t === 'inlineStr') val = unescapeXml(is ?? '');
-      else if (t === 'b') val = v === '1' ? 'true' : 'false';
-      else if (v !== undefined) { val = unescapeXml(v); if (s && /^\d+(\.\d+)?$/.test(val) && Number(val) > 20000 && Number(val) < 80000 && !val.includes('.')) val = excelDate(Number(val)); }
-      row[ref ? colIndex(ref) : row.length] = val;
+  // Tab names come from workbook.xml; their files from workbook.xml.rels.
+  const wb = files.get('xl/workbook.xml')?.toString('utf8') ?? '';
+  const rels = files.get('xl/_rels/workbook.xml.rels')?.toString('utf8') ?? '';
+  const target = (rid: string) => { const m = rels.match(new RegExp(`<Relationship[^>]*Id="${rid}"[^>]*Target="([^"]+)"`)) ?? rels.match(new RegExp(`<Relationship[^>]*Target="([^"]+)"[^>]*Id="${rid}"`)); return m ? 'xl/' + m[1].replace(/^\/?xl\//, '').replace(/^\//, '') : null; };
+  let order = [...wb.matchAll(/<sheet [^>]*name="([^"]*)"[^>]*r:id="([^"]+)"/g)].map(m => ({ name: unescapeXml(m[1]), file: target(m[2]) })).filter(x => x.file && files.has(x.file)) as { name: string; file: string }[];
+  if (!order.length) order = [...files.keys()].filter(k => /^xl\/worksheets\/[^/]+\.xml$/.test(k)).sort().map((f, i) => ({ name: `Sheet${i + 1}`, file: f }));
+  const out: { name: string; rows: string[][] }[] = [];
+  for (const { name, file } of order) {
+    const xml = files.get(file)!.toString('utf8');
+    const rows: string[][] = [];
+    for (const r of xml.match(/<row[^>]*>[\s\S]*?<\/row>/g) ?? []) {
+      const row: string[] = [];
+      for (const c of r.match(/<c [^>]*?(?:\/>|>[\s\S]*?<\/c>)/g) ?? []) {
+        const ref = c.match(/ r="([A-Z]+\d+)"/)?.[1]; const t = c.match(/ t="(\w+)"/)?.[1]; const s = c.match(/ s="(\d+)"/)?.[1];
+        const v = c.match(/<v>([\s\S]*?)<\/v>/)?.[1]; const is = c.match(/<is>[\s\S]*?<t[^>]*>([\s\S]*?)<\/t>/)?.[1];
+        let val = '';
+        if (t === 's' && v !== undefined) val = shared[Number(v)] ?? '';
+        else if (t === 'inlineStr') val = unescapeXml(is ?? '');
+        else if (t === 'b') val = v === '1' ? 'true' : 'false';
+        else if (v !== undefined) { val = unescapeXml(v); if (s && /^\d+(\.\d+)?$/.test(val) && Number(val) > 20000 && Number(val) < 80000 && !val.includes('.')) val = excelDate(Number(val)); }
+        row[ref ? colIndex(ref) : row.length] = val;
+      }
+      for (let i = 0; i < row.length; i++) if (row[i] === undefined) row[i] = '';
+      if (row.some(x => x.trim() !== '')) rows.push(row);
     }
-    for (let i = 0; i < row.length; i++) if (row[i] === undefined) row[i] = '';
-    if (row.some(x => x.trim() !== '')) rows.push(row);
+    if (rows.length) out.push({ name, rows });
   }
-  return rows;
+  return out;
 }
+

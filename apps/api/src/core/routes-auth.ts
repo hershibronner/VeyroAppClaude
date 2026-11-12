@@ -10,6 +10,7 @@ import { audit } from './audit';
 import { rateLimit } from './ratelimit';
 import { IS_PROD } from './env';
 import { sendTemplate } from '../adapters/messaging';
+import { notifyPlatform } from '../modules/_admin/common';
 import { WEB_URL } from './settings';
 import { signedUrl } from './storage';
 
@@ -34,6 +35,8 @@ export async function mePayload(ctx: Ctx) {
   const sub = ctx.orgId ? await one<any>(`SELECT s.*, p.name plan_name FROM subscriptions s JOIN plans p ON p.key=s.plan_key WHERE organization_id=$1`, [ctx.orgId]) : null;
   const u = await one<any>(`SELECT id, name, email, phone, avatar_color, avatar_file, mfa_enabled FROM users WHERE id=$1`, [ctx.userId]);
   const impersonator = ctx.impersonatorId ? await one<any>(`SELECT name, email FROM users WHERE id=$1`, [ctx.impersonatorId]) : null;
+  const approval = ctx.orgId ? await one<any>(`SELECT o.approval_status status, a.submitted_at, a.rejection_reason, a.logo_file IS NOT NULL has_logo, a.registration_file IS NOT NULL has_registration, (a.organization_id IS NOT NULL) self_serve
+    FROM organizations o LEFT JOIN agency_applications a ON a.organization_id=o.id WHERE o.id=$1`, [ctx.orgId]) : null;
   const personalLink = ctx.role.kind === 'agency' && ctx.orgId ? await one<any>(`SELECT token FROM sourcing_links WHERE organization_id=$1 AND user_id=$2 AND position_id IS NULL AND active ORDER BY created_at LIMIT 1`, [ctx.orgId, ctx.userId]) : null;
   return {
     user: { ...u, avatar_url: signedUrl(u?.avatar_file, 86400) },
@@ -47,6 +50,7 @@ export async function mePayload(ctx: Ctx) {
       branding: branding ? { ...branding, logo_url: signedUrl(branding.logo_file, 86400) } : null, flags,
       subscription: sub ? { plan: sub.plan_key, plan_name: sub.plan_name, status: sub.status, comped: sub.comped, trial_ends_at: sub.trial_ends_at } : null,
       personalLinkToken: personalLink?.token ?? null,
+      approval,
     } : null,
   };
 }
@@ -140,18 +144,30 @@ export default async function authRoutes(app: FastifyInstance) {
     return mePayload(ctx!);
   });
 
+  // Self-serve sign-up: creates the owner + agency in "pending" state. A VeyroApp platform admin approves it
+  // (Platform → Agencies); until then the owner only sees the pending-approval screen.
   app.post('/api/v1/auth/register', { config: { public: true } }, async (req, reply) => {
-    const b = z.object({ agencyName: z.string().min(2).max(80), name: z.string().min(2).max(80), email: z.string().email(), password: z.string().min(8, 'Use at least 8 characters') }).parse(req.body);
+    const opt = (max: number) => z.string().trim().max(max).optional().nullable().transform(v => v || null);
+    const b = z.object({
+      agencyName: z.string().trim().min(2, 'Enter your business name').max(80), name: z.string().trim().min(2, 'Enter your name').max(80), email: z.string().trim().email('Enter a valid email'), password: z.string().min(8, 'Use at least 8 characters').max(200),
+      phone: opt(40), website: opt(200), country: opt(80), team_size: opt(40), active_workers: opt(40), industries: z.array(z.string().max(60)).max(20).default([]),
+      previous_software: opt(80), heard_from: opt(120), legal_name: opt(160), registration_number: opt(80),
+    }).parse(req.body);
     await rateLimit(`register:${req.ip}`, 10, 3600);
     if (await one(`SELECT 1 FROM users WHERE lower(email)=lower($1)`, [b.email])) throw conflict('An account with this email already exists. Sign in, then use "Create another agency".');
     const org = await tx(async (c) => {
-      const u = (await c.query(`INSERT INTO users (email, name, password_hash, avatar_color) VALUES ($1,$2,$3,'#345CFF') RETURNING *`, [b.email.toLowerCase(), b.name, await bcrypt.hash(b.password, 10)])).rows[0];
+      const u = (await c.query(`INSERT INTO users (email, name, password_hash, phone, avatar_color) VALUES ($1,$2,$3,$4,'#345CFF') RETURNING *`, [b.email.toLowerCase(), b.name, await bcrypt.hash(b.password, 10), b.phone])).rows[0];
       const o = await createAgency(u.id, b.agencyName, c);
+      await c.query(`UPDATE organizations SET approval_status='pending' WHERE id=$1`, [o.id]);
+      await c.query(`INSERT INTO agency_applications (organization_id, applicant_user_id, phone, website, country, team_size, active_workers, industries, previous_software, heard_from, legal_name, registration_number) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+        [o.id, u.id, b.phone, b.website, b.country, b.team_size, b.active_workers, b.industries, b.previous_software, b.heard_from, b.legal_name, b.registration_number]);
       return { ...o, userId: u.id };
     });
     await createSession(reply, req, org.userId, org.id);
     await audit({ orgId: org.id, userId: org.userId, user: { name: b.name } as any, impersonatorId: null, ip: req.ip }, 'organization.created', { type: 'organization', id: org.id, label: org.name });
-    return { ok: true, slug: org.slug };
+    await sendTemplate(null, 'agency_application_received', b.email, { user: { name: b.name }, agency: { name: b.agencyName } }).catch(() => {});
+    await notifyPlatform(`New agency application: ${b.agencyName}`, `${b.name} · ${b.email}${b.country ? ` · ${b.country}` : ''}`, '/platform/agencies?tab=applications', 'agency.applied').catch(() => {});
+    return { ok: true, slug: org.slug, pending: true };
   });
 
   app.post('/api/v1/auth/create-agency', async (req) => {

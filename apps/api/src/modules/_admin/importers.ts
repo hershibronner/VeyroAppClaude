@@ -44,6 +44,19 @@ export const ENTITIES: Record<string, EntityDef> = {
     { key: 'skills', label: 'Skills (; separated)', type: 'list', aliases: ['skill set'] }, { key: 'languages', label: 'Languages (; separated)', type: 'list' },
     { key: 'rate_min', label: 'Minimum rate (USD/hour)', type: 'money', aliases: ['min rate', 'rate min'] }, { key: 'rate_target', label: 'Target rate (USD/hour)', type: 'money', aliases: ['rate', 'expected rate', 'target rate'] },
     { key: 'source', label: 'Source', type: 'text' }, { key: 'status', label: 'Status', type: 'enum', options: ['new_applicant', 'screening', 'qualified', 'talent_pool', 'on_hold', 'future'] }, LEGACY] },
+  positions: { key: 'positions', label: 'Positions', dupeKeys: 'legacy ID, title + client', allowUpdate: true, fields: [
+    { key: 'title', label: 'Position title', type: 'text', required: true, aliases: ['position', 'job title', 'role', 'job', 'opening', 'title'] },
+    { key: 'company_name', label: 'Client name', type: 'text', aliases: ['client', 'company', 'account', 'customer'], hint: 'Matched to an existing client or lead by name — import clients first' },
+    { key: 'status', label: 'Status', type: 'enum', options: ['draft', 'open', 'on_hold', 'filled', 'closed'], aliases: ['stage', 'position status'] },
+    { key: 'openings', label: 'Openings', type: 'number', aliases: ['headcount', 'seats', 'number of hires', 'qty', 'quantity'] },
+    { key: 'employment_type', label: 'Employment type', type: 'enum', options: ['full_time', 'part_time', 'contract'], aliases: ['type', 'job type', 'full time / part time'] },
+    { key: 'weekly_hours', label: 'Weekly hours', type: 'number', aliases: ['hours', 'hours per week'] },
+    { key: 'schedule', label: 'Schedule', type: 'text', aliases: ['shift', 'working hours'] }, { key: 'timezone', label: 'Time zone', type: 'text', aliases: ['tz'] },
+    { key: 'skills', label: 'Skills (; separated)', type: 'list', aliases: ['requirements', 'required skills'] }, { key: 'software', label: 'Software (; separated)', type: 'list', aliases: ['tools', 'software'] },
+    { key: 'languages', label: 'Languages (; separated)', type: 'list' },
+    { key: 'pay_min', label: 'Pay min (per hour)', type: 'money', aliases: ['min pay', 'pay rate', 'pay from'] }, { key: 'pay_max', label: 'Pay max (per hour)', type: 'money', aliases: ['max pay', 'pay to'] },
+    { key: 'bill_budget', label: 'Bill rate / budget (per hour)', type: 'money', aliases: ['bill rate', 'budget', 'client rate'] },
+    { key: 'description', label: 'Description', type: 'text', aliases: ['job description', 'details', 'notes'] }, LEGACY] },
   workers: { key: 'workers', label: 'Workers', dupeKeys: 'legacy ID, email', allowUpdate: true, fields: [
     { key: 'first_name', label: 'First name', type: 'text', required: true, aliases: ['first', 'firstname'] }, { key: 'last_name', label: 'Last name', type: 'text', aliases: ['last', 'surname', 'lastname'] },
     { key: 'email', label: 'Email', type: 'email', required: true, aliases: ['email address'] }, { key: 'phone', label: 'Phone', type: 'phone' }, { key: 'country', label: 'Country', type: 'text' },
@@ -164,6 +177,12 @@ export async function findExisting(orgId: string, entity: string, v: Record<stri
       return { dup: null };
     }
     case 'candidates': { const c = await findCandidate(orgId, { legacy: v.legacy_id, email: v.email, phone: v.phone }, db); return { dup: c ? { id: c.id, label: `${c.first_name} ${c.last_name ?? ''}`.trim(), by: c.by } : null }; }
+    case 'positions': {
+      if (v.legacy_id) { const r = await one<any>(`SELECT id, title FROM positions WHERE organization_id=$1 AND legacy_id=$2 AND archived_at IS NULL`, [orgId, v.legacy_id], db); if (r) return { dup: { id: r.id, label: r.title, by: 'legacy ID' } }; }
+      const co = v.company_name ? await findCompany(orgId, { name: v.company_name }, db) : null;
+      const r = await one<any>(`SELECT id, title FROM positions WHERE organization_id=$1 AND lower(title)=lower($2) AND company_id IS NOT DISTINCT FROM $3 AND archived_at IS NULL LIMIT 1`, [orgId, v.title, co?.id ?? null], db);
+      return { dup: r ? { id: r.id, label: r.title, by: 'title + client' } : null };
+    }
     case 'workers': { const w = await findWorker(orgId, { legacy: v.legacy_id, email: v.email }, db); return { dup: w ? { id: w.id, label: `${w.first_name} ${w.last_name ?? ''}`.trim(), by: w.by } : null }; }
     case 'placements': {
       if (v.legacy_id) { const r = await one<any>(`SELECT id, title FROM placements WHERE organization_id=$1 AND legacy_id=$2`, [orgId, v.legacy_id], db); if (r) return { dup: { id: r.id, label: r.title, by: 'legacy ID' } }; }
@@ -191,6 +210,7 @@ export function fileKeys(entity: string, v: Record<string, any>): string[] {
   if (v.legacy_id) k.push(`legacy:${v.legacy_id}`);
   if (entity === 'leads' || entity === 'clients') { if (v.domain) k.push(`domain:${v.domain}`); if (v.name) k.push(`name:${normalizeCompanyName(v.name)}`); }
   else if (['contacts', 'candidates', 'workers'].includes(entity)) { if (v.email) k.push(`email:${v.email}`); const p = normalizePhone(v.phone); if (p) k.push(`phone:${p}`); }
+  else if (entity === 'positions') k.push(`pos:${String(v.title ?? '').toLowerCase()}:${String(v.company_name ?? '').toLowerCase()}`);
   else if (entity === 'placements') k.push(`pl:${v.worker_email ?? v.worker_legacy_id}:${v.company_name ?? v.company_legacy_id}:${v.start_date}`);
   else if (entity === 'rates') k.push(`rate:${v.placement_legacy_id ?? `${v.worker_email}:${v.company_name}`}:${v.effective_from}`);
   return k;
@@ -242,6 +262,21 @@ export async function applyRow(c: PoolClient, orgId: string, userId: string, ent
     const r = await c.query(`INSERT INTO candidates (organization_id, first_name, last_name, email, phone, country, city, timezone, headline, years_experience, skills, languages, rate_min_cents, rate_target_cents, source, status, legacy_id, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id`,
       [orgId, v.first_name, nn(v.last_name), nn(v.email), nn(v.phone), nn(v.country), nn(v.city), nn(v.timezone), nn(v.headline), nn(v.years_experience), v.skills ?? [], v.languages ?? [], nn(v.rate_min), nn(v.rate_target), nn(v.source) ?? 'Import', v.status ?? 'new_applicant', nn(v.legacy_id), userId]);
     await act('candidate', r.rows[0].id, 'Candidate imported');
+    return { id: r.rows[0].id, action: 'created' };
+  }
+  if (entity === 'positions') {
+    const co = v.company_name ? await findCompany(orgId, { name: v.company_name }, c) : null;
+    if (existingId) {
+      await c.query(`UPDATE positions SET title=COALESCE($3,title), company_id=COALESCE($4,company_id), status=COALESCE($5,status), openings=COALESCE($6,openings), employment_type=COALESCE($7,employment_type), weekly_hours=COALESCE($8,weekly_hours), schedule=COALESCE($9,schedule), timezone=COALESCE($10,timezone),
+        skills=COALESCE($11,skills), software=COALESCE($12,software), languages=COALESCE($13,languages), pay_min_cents=COALESCE($14,pay_min_cents), pay_max_cents=COALESCE($15,pay_max_cents), bill_budget_cents=COALESCE($16,bill_budget_cents), description=COALESCE($17,description), legacy_id=COALESCE(legacy_id,$18), match_version=match_version+1, updated_at=now() WHERE id=$1 AND organization_id=$2`,
+        [existingId, orgId, nn(v.title), co?.id ?? null, nn(v.status), nn(v.openings), nn(v.employment_type), nn(v.weekly_hours), nn(v.schedule), nn(v.timezone), v.skills ?? null, v.software ?? null, v.languages ?? null, nn(v.pay_min), nn(v.pay_max), nn(v.bill_budget), nn(v.description), nn(v.legacy_id)]);
+      await act('position', existingId, 'Updated by import');
+      return { id: existingId, action: 'updated' };
+    }
+    const r = await c.query(`INSERT INTO positions (organization_id, company_id, title, status, openings, employment_type, weekly_hours, schedule, timezone, skills, software, languages, pay_min_cents, pay_max_cents, bill_budget_cents, description, legacy_id, created_by)
+      VALUES ($1,$2,$3,COALESCE($4,'open'),COALESCE($5,1),COALESCE($6,'full_time'),$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id`,
+      [orgId, co?.id ?? null, v.title, nn(v.status), nn(v.openings), nn(v.employment_type), nn(v.weekly_hours), nn(v.schedule), nn(v.timezone), v.skills ?? [], v.software ?? [], v.languages ?? [], nn(v.pay_min), nn(v.pay_max), nn(v.bill_budget), nn(v.description), nn(v.legacy_id), userId]);
+    await act('position', r.rows[0].id, 'Position imported');
     return { id: r.rows[0].id, action: 'created' };
   }
   if (entity === 'workers') {
