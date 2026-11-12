@@ -11,6 +11,7 @@ import { OnboardingChecklist } from './modules/onboarding/Checklist';
 const ProfilePage = lazy(() => import('./pages/Profile'));
 const SignupPage = lazy(() => import('./pages/Signup'));
 const PendingApproval = lazy(() => import('./pages/PendingApproval'));
+const LandingPage = lazy(() => import('./pages/Landing'));
 
 // Area route manifests (each area owns src/modules/<area>/{index,portal,public}.tsx and lazy-loads its pages).
 const areaMods = import.meta.glob<{ routes?: RouteObject[] }>('./modules/*/index.tsx', { eager: true });
@@ -26,7 +27,7 @@ function RequireAuth({ kind, children }: { kind: 'agency' | PortalKind; children
   const { me, loading, switching } = useAuth();
   const loc = useLocation();
   if (loading || switching) return <Splash />;
-  if (!me) return <Navigate to={`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
+  if (!me) return <Navigate to={loc.pathname === '/' && !loc.search ? '/home' : `/login?next=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
   if (!me.workspace) return <Navigate to={me.isPlatformAdmin ? '/platform' : '/login'} replace />;
   if (me.workspace.role.kind !== kind) return <Navigate to={landingFor(me)} replace />;
   // Self-serve agencies wait for VeyroApp approval (support mode / impersonation still sees the workspace).
@@ -50,6 +51,7 @@ export default function App() {
   const orgKey = me?.workspace?.org.id ?? 'none';
   return (
     <Routes key={orgKey}>
+      <Route path="/home" element={<Suspense fallback={<div style={{ minHeight: '100vh', background: '#000' }} />}><LandingPage /></Suspense>} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<Suspense fallback={<Splash />}><SignupPage /></Suspense>} />
       <Route path="/signup" element={<Navigate to="/register" replace />} />
