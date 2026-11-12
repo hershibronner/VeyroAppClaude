@@ -2,7 +2,7 @@
 // owner completes five short stages (right). Submitting creates the account in "pending approval".
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Check, Eye, EyeOff, ImagePlus, FileCheck2, Lock, Mail, User, Building2, Globe, Phone, MapPin, Sparkles, MailCheck, Users, Briefcase, LayoutDashboard, Inbox, BarChart3 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Eye, EyeOff, ImagePlus, FileCheck2, Lock, Mail, User, Building2, Globe, Phone, MapPin, Sparkles, MailCheck } from 'lucide-react';
 import { api, ApiError, setCsrf } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import './signup.css';
@@ -133,27 +133,12 @@ export default function SignupPage() {
 
   return (
     <div className="wb" style={{ ['--brand' as any]: v.color }}>
-      {/* ── Live workspace preview ── */}
+      {/* ── Steps ── */}
       <aside className="wb-side">
         <div className="wb-side-top"><span className="wb-mark">V</span><b>VeyroApp</b><span className="wb-tag">for staffing agencies</span></div>
-        <div className="wb-preview" aria-hidden>
-          <div className="wb-pv-bar"><i /><i /><i /><span>app.veyro/{(v.agencyName.trim() || 'your-agency').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}</span></div>
-          <div className="wb-pv-body">
-            <div className="wb-pv-nav">
-              <div className="wb-pv-logo">{logoUrl ? <img src={logoUrl} alt="" /> : <span>{biz.slice(0, 1).toUpperCase()}</span>}<b>{biz}</b></div>
-              {[[LayoutDashboard, 'Dashboard'], [Briefcase, 'Positions'], [Users, 'Candidates'], [Inbox, 'Clients'], [BarChart3, 'Reports']].map(([Ic, l]: any, i) => <div key={l} className={`wb-pv-item ${i === 0 ? 'on' : ''}`}><Ic size={12} />{l}</div>)}
-            </div>
-            <div className="wb-pv-main">
-              <div className="wb-pv-hello">Good morning{v.name.trim() ? `, ${v.name.trim().split(/\s+/)[0]}` : ''} 👋</div>
-              <div className="wb-pv-cards">
-                <div><small>Open positions</small><b>{v.industries.length ? v.industries.length * 3 : '—'}</b></div>
-                <div><small>Placed VAs</small><b>{({ starting: '0', '1-10': '8', '11-50': '32', '51+': '74' } as any)[v.active_workers] ?? '—'}</b></div>
-                <div><small>Team</small><b>{({ just_me: '1', '2-5': '4', '6-20': '12', '21+': '25' } as any)[v.team_size] ?? '—'}</b></div>
-              </div>
-              <div className="wb-pv-chips">{(v.industries.length ? v.industries : ['Your', 'industries']).slice(0, 4).map(x => <span key={x}>{x}</span>)}</div>
-              <div className="wb-pv-rows">{[0, 1, 2].map(i => <div key={i}><span className="av" /><i style={{ width: `${60 - i * 12}%` }} /><em /></div>)}</div>
-            </div>
-          </div>
+        <div className="wb-intro">
+          <h2>Set up your agency in a few minutes.</h2>
+          <p>Five short steps to get your workspace ready.</p>
         </div>
         <ol className="wb-stages">{STAGES.map((s, i) => (
           <li key={s.key} className={i < stage ? 'done' : i === stage ? 'now' : ''}>

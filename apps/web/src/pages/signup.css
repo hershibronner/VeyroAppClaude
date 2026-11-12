@@ -111,40 +111,15 @@
 
 /* ───────── Agency sign-up: "workspace builder" (split screen, live preview) ───────── */
 .wb { --brand: #345CFF; --ink: #0B1020; --mute: #667085; --line: #E4E7EC; min-height: 100vh; min-height: 100dvh; display: grid; grid-template-columns: minmax(380px, 46%) 1fr; background: #fff; color: var(--ink); font-family: 'Inter Variable', Inter, system-ui, sans-serif; }
-.wb-side { position: relative; overflow: hidden; background: #0B1020; color: #E6E9F2; padding: 32px 40px; display: flex; flex-direction: column; gap: 28px; }
-.wb-side::before { content: ''; position: absolute; inset: 0; background-image: linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px); background-size: 32px 32px; mask-image: radial-gradient(ellipse at 30% 20%, #000 30%, transparent 75%); pointer-events: none; }
-.wb-side::after { content: ''; position: absolute; width: 520px; height: 520px; right: -200px; top: 18%; border-radius: 50%; background: var(--brand); filter: blur(120px); opacity: .35; transition: background .6s; pointer-events: none; }
+.wb-side { position: relative; overflow: hidden; background: #0B1020; color: #E6E9F2; padding: 32px 48px; display: flex; flex-direction: column; gap: 36px; }
+.wb-side::after { content: ''; position: absolute; width: 520px; height: 520px; right: -200px; top: 18%; border-radius: 50%; background: var(--brand); filter: blur(120px); opacity: .18; transition: background .6s; pointer-events: none; }
 .wb-side > * { position: relative; z-index: 1; }
 .wb-side-top { display: flex; align-items: center; gap: 10px; font-size: 15px; }
 .wb-mark { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; font-weight: 800; color: #fff; background: var(--brand); transition: background .4s; }
 .wb-tag { margin-left: auto; font-size: 12px; color: #8D94A8; border: 1px solid rgba(255,255,255,.12); padding: 3px 10px; border-radius: 99px; }
-.wb-preview { border-radius: 16px; background: #F7F8FB; color: var(--ink); box-shadow: 0 40px 80px -30px rgba(0,0,0,.7), 0 0 0 1px rgba(255,255,255,.08); overflow: hidden; transform: perspective(1400px) rotateY(-6deg) rotateX(3deg); transform-origin: left center; transition: transform .6s; }
-.wb-preview:hover { transform: none; }
-.wb-pv-bar { display: flex; align-items: center; gap: 6px; padding: 9px 12px; background: #fff; border-bottom: 1px solid var(--line); }
-.wb-pv-bar i { width: 9px; height: 9px; border-radius: 50%; background: #E4E7EC; }
-.wb-pv-bar span { margin-left: 10px; font-size: 11px; color: var(--mute); background: #F2F4F7; padding: 3px 10px; border-radius: 6px; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.wb-pv-body { display: grid; grid-template-columns: 132px 1fr; min-height: 230px; }
-.wb-pv-nav { background: #fff; border-right: 1px solid var(--line); padding: 12px 10px; display: flex; flex-direction: column; gap: 3px; }
-.wb-pv-logo { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; min-width: 0; }
-.wb-pv-logo span, .wb-pv-logo img { width: 26px; height: 26px; border-radius: 7px; flex: none; }
-.wb-pv-logo span { display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 12px; background: var(--brand); transition: background .4s; }
-.wb-pv-logo img { object-fit: contain; background: #fff; animation: signupPop .5s cubic-bezier(.2,.9,.3,1.4) both; }
-.wb-pv-logo b { font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.wb-pv-item { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--mute); padding: 6px 8px; border-radius: 7px; }
-.wb-pv-item.on { color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, white); font-weight: 600; }
-.wb-pv-main { padding: 14px; display: grid; gap: 10px; align-content: start; }
-.wb-pv-hello { font-weight: 700; font-size: 14px; }
-.wb-pv-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.wb-pv-cards div { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
-.wb-pv-cards small { display: block; font-size: 9.5px; color: var(--mute); }
-.wb-pv-cards b { font-size: 17px; }
-.wb-pv-chips { display: flex; gap: 5px; flex-wrap: wrap; }
-.wb-pv-chips span { font-size: 10px; padding: 3px 8px; border-radius: 99px; background: color-mix(in srgb, var(--brand) 12%, white); color: var(--brand); font-weight: 600; animation: signupPop .35s both; }
-.wb-pv-rows { display: grid; gap: 6px; }
-.wb-pv-rows div { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid var(--line); border-radius: 9px; padding: 7px 9px; }
-.wb-pv-rows .av { width: 18px; height: 18px; border-radius: 50%; background: color-mix(in srgb, var(--brand) 30%, white); flex: none; }
-.wb-pv-rows i { height: 6px; border-radius: 4px; background: #E4E7EC; }
-.wb-pv-rows em { margin-left: auto; width: 34px; height: 14px; border-radius: 99px; background: color-mix(in srgb, #10B981 25%, white); }
+.wb-intro { margin-top: auto; }
+.wb-intro h2 { margin: 0 0 10px; font-size: 30px; line-height: 1.2; font-weight: 700; letter-spacing: -.02em; color: #fff; max-width: 380px; }
+.wb-intro p { margin: 0; font-size: 14.5px; line-height: 1.5; color: #8D94A8; max-width: 360px; }
 .wb-stages { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .wb-stages button { width: 100%; display: flex; align-items: center; gap: 14px; padding: 9px 10px; background: none; border: 0; border-radius: 12px; color: inherit; text-align: left; font: inherit; cursor: default; }
 .wb-stages li.done button { cursor: pointer; }
@@ -217,7 +192,7 @@
 @media (max-width: 900px) {
   .wb { grid-template-columns: 1fr; }
   .wb-side { padding: 18px 16px; gap: 14px; }
-  .wb-preview, .wb-side-foot { display: none; }
+  .wb-intro, .wb-side-foot { display: none; }
   .wb-stages { grid-template-columns: repeat(5, 1fr); }
   .wb-stages small, .wb-stages b { display: none; }
   .wb-stages button { justify-content: center; padding: 4px; }
@@ -225,7 +200,7 @@
   .wb-stage { padding: 24px 0; }
   .wb-two { grid-template-columns: 1fr; }
 }
-@media (prefers-reduced-motion: reduce) { .wb-stage.fwd, .wb-stage.back { animation: none; } .wb-preview { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .wb-stage.fwd, .wb-stage.back { animation: none; } }
 
 /* Pending approval in the same split layout */
 .wb-pending { justify-content: center; }
