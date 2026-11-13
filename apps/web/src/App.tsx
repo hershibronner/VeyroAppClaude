@@ -1,7 +1,6 @@
-import { Suspense, lazy, useEffect, type ReactNode } from 'react';
+import { Suspense, lazy, type ReactNode } from 'react';
 import { Navigate, Route, Routes, useLocation, type RouteObject } from 'react-router-dom';
 import { useAuth } from './lib/auth';
-import { isMarketingSite, appHref } from './lib/site';
 import { Shell } from './components/Shell';
 import { PortalShell, type PortalKind } from './portals/PortalShell';
 import { LoginPage, ForgotPage, ResetPage, AcceptInvitePage, landingFor } from './pages/Auth';
@@ -47,29 +46,7 @@ const renderRoutes = (rs: RouteObject[]) => rs.map((r, i) => (
   </Route>
 ));
 
-// voicechart.app: only the landing page lives here; any other path is the app, so it moves to the portal.
-function ToPortal() {
-  const loc = useLocation();
-  useEffect(() => { window.location.replace(appHref(loc.pathname + loc.search + loc.hash)); }, [loc]);
-  return <div style={{ minHeight: '100vh', background: '#000' }} />;
-}
-
-function MarketingRoutes() {
-  return (
-    <Routes>
-      <Route path="/" element={<Suspense fallback={<div style={{ minHeight: '100vh', background: '#000' }} />}><LandingPage /></Suspense>} />
-      <Route path="/home" element={<Navigate to="/" replace />} />
-      <Route path="*" element={<ToPortal />} />
-    </Routes>
-  );
-}
-
 export default function App() {
-  if (isMarketingSite) return <MarketingRoutes />;
-  return <PortalApp />;
-}
-
-function PortalApp() {
   const { me } = useAuth();
   const orgKey = me?.workspace?.org.id ?? 'none';
   return (
