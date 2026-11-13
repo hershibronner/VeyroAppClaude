@@ -188,19 +188,22 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/api/v1/auth/register', { config: { public: true } }, async (req, reply) => {
     const opt = (max: number) => z.string().trim().max(max).optional().nullable().transform(v => v || null);
     const b = z.object({
-      agencyName: z.string().trim().min(2, 'Enter your business name').max(80), name: z.string().trim().min(2, 'Enter your name').max(80), email: z.string().trim().email('Enter a valid email'), password: z.string().min(8, 'Use at least 8 characters').max(200),
+      agencyName: z.string().trim().min(2, 'Enter your business name').max(80), name: z.string().trim().min(2, 'Enter your name').max(80), email: z.string().trim().email('Enter a valid email'), password: z.string().max(200).optional().default(''),
       phone: opt(40), website: opt(200), country: opt(80), team_size: opt(40), active_workers: opt(40), industries: z.array(z.string().max(60)).max(20).default([]),
       previous_software: opt(80), heard_from: opt(120), legal_name: opt(160), registration_number: opt(80),
       verification_token: z.string().min(10, 'Confirm your email first'),
     }).parse(req.body);
     await rateLimit(`register:${req.ip}`, 10, 3600);
     if (await one(`SELECT 1 FROM users WHERE lower(email)=lower($1)`, [b.email])) throw conflict('An account with this email already exists. Sign in, then use "Create another agency".');
-    const ver = await one<any>(`SELECT id FROM email_verifications WHERE token=$1 AND lower(email)=lower($2) AND verified_at IS NOT NULL AND used_at IS NULL AND verified_at > now() - interval '2 hours'`, [b.verification_token, b.email]);
+    const ver = await one<any>(`SELECT id, code_hash FROM email_verifications WHERE token=$1 AND lower(email)=lower($2) AND verified_at IS NOT NULL AND used_at IS NULL AND verified_at > now() - interval '2 hours'`, [b.verification_token, b.email]);
     if (!ver) throw badRequest('Please confirm your email again — the verification expired.');
+    // Google-verified sign-ups may skip the password (they sign in with Google; "Forgot password" can add one later).
+    const viaGoogle = ver.code_hash === 'google';
+    if (b.password.length < 8 && !(viaGoogle && !b.password)) throw badRequest('Choose a password with at least 8 characters');
     const org = await tx(async (c) => {
       const used = await c.query(`UPDATE email_verifications SET used_at=now() WHERE id=$1 AND used_at IS NULL`, [ver.id]);
       if (!used.rowCount) throw badRequest('Please confirm your email again — the verification was already used.');
-      const u = (await c.query(`INSERT INTO users (email, name, password_hash, phone, avatar_color, email_verified_at) VALUES ($1,$2,$3,$4,'#345CFF', now()) RETURNING *`, [b.email.toLowerCase(), b.name, await bcrypt.hash(b.password, 10), b.phone])).rows[0];
+      const u = (await c.query(`INSERT INTO users (email, name, password_hash, phone, avatar_color, email_verified_at) VALUES ($1,$2,$3,$4,'#345CFF', now()) RETURNING *`, [b.email.toLowerCase(), b.name, b.password ? await bcrypt.hash(b.password, 10) : null, b.phone])).rows[0];
       const o = await createAgency(u.id, b.agencyName, c);
       await c.query(`UPDATE organizations SET approval_status='pending' WHERE id=$1`, [o.id]);
       await c.query(`INSERT INTO agency_applications (organization_id, applicant_user_id, phone, website, country, team_size, active_workers, industries, previous_software, heard_from, legal_name, registration_number) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,

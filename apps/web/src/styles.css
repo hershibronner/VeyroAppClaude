@@ -396,6 +396,11 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .auth-card a:focus-visible, .auth-card button:focus-visible { outline: 2px solid var(--a-purple); outline-offset: 2px; box-shadow: none; }
 .auth-card .err, .auth-card [role=alert] { color: var(--a-danger) !important; font-size: 14px; }
 .auth .demo { margin-top: 22px; font-size: 13px; }
+.google-or { display: flex; align-items: center; gap: 12px; margin: 18px 0 14px; color: #8A8FA0; font-size: 12px; }
+.google-or::before, .google-or::after { content: ''; flex: 1; height: 1px; background: #E4E5EE; }
+.google-btn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; padding: 12px 14px; border-radius: 12px; border: 1.5px solid #DCDDE8; background: #fff; color: #0B0D17 !important; font: inherit; font-size: 14px; font-weight: 600; text-decoration: none; transition: border-color .15s, background .15s, transform .15s; }
+.google-btn:hover { border-color: #C2C4D6; background: #F7F7FB; transform: translateY(-1px); }
+.google-btn:focus-visible { outline: 2px solid #3D5AFE; outline-offset: 2px; }
 .auth .demo-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
 .auth .demo-head b { font-weight: 700; }
 .auth .demo code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }

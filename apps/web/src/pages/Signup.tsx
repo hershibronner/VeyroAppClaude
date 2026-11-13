@@ -5,7 +5,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Check, Eye, EyeOff, ImagePlus, FileCheck2, Lock, Mail, User, Building2, Globe, Phone, MapPin, Sparkles, MailCheck } from 'lucide-react';
 import { api, ApiError, setCsrf } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import { BrandMark } from './Auth';
+import { BrandMark, GoogleButton } from './Auth';
 import './signup.css';
 
 const INDUSTRIES = ['Dental', 'Medical', 'Real estate', 'Insurance', 'E-commerce', 'Legal', 'Accounting', 'Marketing', 'Customer support', 'Tech / IT', 'Home services', 'Logistics'];
@@ -52,6 +52,17 @@ function CodeBoxes({ value, onChange, disabled }: { value: string; onChange: (v:
   );
 }
 
+/** The verified-email hand-off from the Google callback (in the URL hash). Read once and kept, so a remount still has it. */
+let googleHandoff: { token: string; email: string; name: string } | null = null;
+function takeGoogleHandoff() {
+  const h = new URLSearchParams(window.location.hash.slice(1));
+  if (h.get('google') === '1' && h.get('token') && h.get('email')) {
+    googleHandoff = { token: h.get('token')!, email: h.get('email')!, name: h.get('name') || '' };
+    window.history.replaceState(null, '', window.location.pathname);
+  }
+  return googleHandoff;
+}
+
 export default function SignupPage() {
   const nav = useNavigate();
   const { refresh } = useAuth();
@@ -75,12 +86,22 @@ export default function SignupPage() {
   const [devOutbox, setDevOutbox] = useState(false);
   const [resendIn, setResendIn] = useState(0);
   useEffect(() => { if (resendIn <= 0) return; const t = setTimeout(() => setResendIn(n => n - 1), 1000); return () => clearTimeout(t); }, [resendIn]);
+  // Back from "Continue with Google": the email is already verified, so prefill it and skip the code + password.
+  const [viaGoogle, setViaGoogle] = useState(false);
+  useEffect(() => {
+    const qp = new URLSearchParams(window.location.search).get('google_error');
+    if (qp) setErr(qp);
+    const g = takeGoogleHandoff();
+    if (!g) return;
+    setV(s => ({ ...s, email: g.email, name: s.name || g.name }));
+    setToken(g.token); setVerifiedEmail(g.email.toLowerCase()); setViaGoogle(true);
+  }, []);
   const pw = strength(v.password);
   const biz = v.agencyName.trim() || 'Your agency';
 
   const check = (i: number) => {
     const e: Record<string, string> = {};
-    if (i === 0) { if (v.name.trim().length < 2) e.name = 'Enter your name'; if (!/^\S+@\S+\.\S+$/.test(v.email.trim())) e.email = 'Enter a valid email'; if (v.password.length < 8) e.password = 'Use at least 8 characters'; }
+    if (i === 0) { if (v.name.trim().length < 2) e.name = 'Enter your name'; if (!/^\S+@\S+\.\S+$/.test(v.email.trim())) e.email = 'Enter a valid email'; if (v.password.length < 8 && !(viaGoogle && !v.password)) e.password = 'Use at least 8 characters'; }
     if (i === 1) { if (v.agencyName.trim().length < 2) e.agencyName = 'Enter your business name'; if (!v.country.trim()) e.country = 'Enter your country'; }
     if (i === 2) { if (!v.team_size) e.team_size = 'Pick your team size'; if (!v.active_workers) e.active_workers = 'Pick one'; }
     setErrs(e); return !Object.keys(e).length;
@@ -167,11 +188,15 @@ export default function SignupPage() {
             <h1>Create your agency account</h1><p className="wb-lead">You'll use this to sign in and manage your team.</p>
             <F label="Full name" icon={<User size={16} />} error={errs.name}><input autoFocus autoComplete="name" value={v.name} onChange={e => set('name', e.target.value)} placeholder="Jane Smith" /></F>
             <F label="Work email" icon={<Mail size={16} />} error={errs.email} hint="We'll email you here when your account is approved."><input type="email" autoComplete="email" value={v.email} onChange={e => set('email', e.target.value)} placeholder="jane@youragency.com" /></F>
+            {!viaGoogle && <>
             <F label="Password" icon={<Lock size={16} />} error={errs.password}>
               <input type={showPw ? 'text' : 'password'} autoComplete="new-password" value={v.password} onChange={e => set('password', e.target.value)} placeholder="At least 8 characters" />
               <button type="button" className="wb-eye" onClick={() => setShowPw(s => !s)} aria-label={showPw ? 'Hide password' : 'Show password'}>{showPw ? <EyeOff size={16} /> : <Eye size={16} />}</button>
             </F>
             {v.password && <div className={`wb-strength s${pw}`}><i /><i /><i /><i /><span>{STRENGTH[pw]}</span></div>}
+            </>}
+            {viaGoogle && <div className="wb-summary"><MailCheck size={15} /><span>Signed in with Google — no password needed. You can add one later with "Forgot password".</span></div>}
+            {!token && <GoogleButton intent="signup" className="wb-google" />}
           </>}
           {stage === 1 && <>
             <h1>Tell us about your business</h1><p className="wb-lead">Your clients and candidates will see this name.</p>

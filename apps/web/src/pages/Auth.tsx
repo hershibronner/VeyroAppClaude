@@ -81,6 +81,37 @@ export function AuthLayout({ children, lead = 'One workspace for your agency', t
   );
 }
 
+/** Whether "Continue with Google" is configured on the server. Fetched once per page load. */
+let googleReq: Promise<{ enabled: boolean }> | null = null;
+export function useGoogleEnabled() {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    googleReq ??= api.get('/api/v1/auth/google/config').catch(() => ({ enabled: false }));
+    let live = true; googleReq.then(r => { if (live) setOn(!!r.enabled); }); return () => { live = false; };
+  }, []);
+  return on;
+}
+const GoogleG = () => (
+  <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+    <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z" />
+    <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
+    <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z" />
+    <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z" />
+  </svg>
+);
+/** "Continue with Google" with an "or" divider; renders nothing until Google is configured. */
+export function GoogleButton({ intent, next, className }: { intent: 'signin' | 'signup'; next?: string | null; className?: string }) {
+  const on = useGoogleEnabled();
+  if (!on) return null;
+  const href = `/api/v1/auth/google/start?intent=${intent}${next ? `&next=${encodeURIComponent(next)}` : ''}`;
+  return (
+    <div className={`google-wrap ${className ?? ''}`}>
+      <div className="google-or"><span>or</span></div>
+      <a className="google-btn" href={href}><GoogleG /> Continue with Google</a>
+    </div>
+  );
+}
+
 /** Password input with a show/hide toggle. */
 function PasswordInput({ id, value, onChange, autoComplete }: { id: string; value: string; onChange: (v: string) => void; autoComplete: string }) {
   const [show, setShow] = useState(false);
@@ -99,8 +130,8 @@ export function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
-  const [mfa, setMfa] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [mfa, setMfa] = useState(() => sp.get('mfa') === '1');
+  const [err, setErr] = useState<string | null>(() => sp.get('google_error'));
   const [busy, setBusy] = useState(false);
   const live = useEmailLive();
   const finish = async () => { const me = await refresh(); nav(sp.get('next') || landingFor(me), { replace: true }); };
@@ -129,6 +160,7 @@ export function LoginPage() {
             {err && <div className="err small" role="alert" style={{ color: 'var(--danger)' }}>{err}</div>}
             <Button type="submit" variant="primary" block loading={busy}>Sign in</Button>
           </form>
+          <GoogleButton intent="signin" next={sp.get('next')} />
           <div className="demo">
             {/* One-click demo logins only in local builds; the live site never shows them. */}
             {live === false && <>
