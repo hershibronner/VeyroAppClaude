@@ -118,8 +118,10 @@ const webDist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.
 if (fs.existsSync(path.join(webDist, 'index.html'))) {
   await app.register(fastifyStatic, { root: webDist, wildcard: false, index: false });
   app.setNotFoundHandler((req, reply) => {
-    if (req.method !== 'GET' || req.url.startsWith('/api/') || req.url.startsWith('/files/')) return reply.status(404).send({ error: 'Not found' });
-    return reply.sendFile('index.html');
+    // A missing /assets/ chunk (old hash after a deploy) must 404, not get index.html back as JavaScript.
+    if (req.method !== 'GET' || req.url.startsWith('/api/') || req.url.startsWith('/files/') || req.url.startsWith('/assets/')) return reply.status(404).send({ error: 'Not found' });
+    // Never cache index.html, so a new deploy's chunk names are picked up on the next load.
+    return reply.header('Cache-Control', 'no-cache').sendFile('index.html');
   });
 }
 

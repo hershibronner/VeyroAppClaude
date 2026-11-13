@@ -342,7 +342,14 @@ export function Async<T>({ state, children, rows }: { state: { data: T | null; e
 export class Boundary extends Component<{ children: ReactNode; label?: string }, { err: Error | null }> {
   state = { err: null as Error | null };
   static getDerivedStateFromError(err: Error) { return { err }; }
-  componentDidCatch(err: Error, info: ErrorInfo) { console.error('Widget crashed', this.props.label, err, info); }
+  componentDidCatch(err: Error, info: ErrorInfo) {
+    console.error('Widget crashed', this.props.label, err, info);
+    // A stale code chunk after a deploy: reload once to get the new build instead of showing an error.
+    if (/dynamically imported module|Importing a module script failed|error loading dynamically imported/i.test(err.message)) {
+      try { if (Date.now() - Number(sessionStorage.getItem('veyro:chunk-reload') || 0) < 10_000) return; sessionStorage.setItem('veyro:chunk-reload', String(Date.now())); } catch { /* reload anyway */ }
+      window.location.reload();
+    }
+  }
   render() {
     if (this.state.err) return <div className="errorbox"><AlertTriangle size={20} /><div style={{ flex: 1 }}><b>{this.props.label ?? 'This section'} failed to render.</b><div className="small">{this.state.err.message}</div></div><Button size="sm" onClick={() => this.setState({ err: null })}>Retry</Button></div>;
     return this.props.children;
