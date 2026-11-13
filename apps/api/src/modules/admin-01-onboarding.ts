@@ -17,6 +17,7 @@ import { claudeConfigured, claudeErrorMessage, claudePlanImport, claudeCleanRows
 import { platform, auditAs } from './_admin/common';
 import { parseCsv, parseXlsxSheets } from './_admin/tabular';
 import { ENTITIES, suggestMapping } from './_admin/importers';
+import { stripePlatform, stripeConnection } from '../adapters/stripe';
 
 /* ───────────── Pending-approval gate ───────────── */
 const approvalCache = new Map<string, { at: number; status: string }>();
@@ -182,6 +183,11 @@ async function plugin(app: FastifyInstance) {
       { key: 'team', title: 'Invite your team', text: 'Add your recruiters, sales reps and account managers so everyone works in one place.', done: s.members > 1 || s.invites > 0, link: '/settings/team?invite=1', stat: s.invites ? `${s.invites} invited` : null },
       { key: 'import', title: 'Import your data with AI', text: 'Upload the Excel or CSV from your current software — positions, candidates and clients. AI sorts it out.', done: s.imports > 0, link: '/onboarding/import', stat: s.imports ? `${s.positions} positions · ${s.candidates} candidates · ${s.clients} clients` : null },
     ];
+    // Card payments: only offered once the server has Stripe Connect set up, so the step always works.
+    if (stripePlatform()) {
+      const conn = await stripeConnection(ctx.orgId);
+      tasks.push({ key: 'stripe', title: 'Connect Stripe to get paid', text: 'Link your Stripe account so clients can pay invoices by card. The money goes straight to your Stripe.', done: !!conn, link: '/settings/integrations', stat: conn ? `Connected: ${conn.account_name ?? conn.external_account_id}` : null });
+    }
     const canManage = ['owner', 'admin'].includes(ctx.role.key);
     return { show: !!a && !a.checklist_dismissed_at && canManage && tasks.some(t => !t.done), dismissed: !!a?.checklist_dismissed_at, tasks };
   });
