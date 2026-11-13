@@ -99,7 +99,7 @@ function Inner({ editable }: { editable: boolean }) {
   return (
     <div className="stack ig">
       <section className="ig-hero">
-        <i className="blob b1" /><i className="blob b2" /><i className="blob b3" /><i className="grain" />
+        <i className="blob b1" /><i className="blob b2" /><i className="blob b3" /><i className="blob b4" /><i className="grain" />
         <div className="ig-hero-top">
           <div>
             <span className="ig-kicker">// Connected services</span>
