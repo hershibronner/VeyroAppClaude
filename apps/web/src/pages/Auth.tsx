@@ -96,10 +96,13 @@ export function LoginPage() {
             <Button type="submit" variant="primary" block loading={busy}>Sign in</Button>
           </form>
           <div className="demo">
-            <div className="demo-head"><b>Local demo</b><span className="muted">password <code>demo1234</code> · one click signs in</span></div>
-            <div className="demo-grid">
-              {DEMO.map(d => <button key={d.email} type="button" disabled={busy} onClick={() => { setEmail(d.email); setPassword('demo1234'); submit(d.email, 'demo1234'); }}><b>{d.who}</b>{d.role}</button>)}
-            </div>
+            {/* One-click demo logins only in local builds; the live site never shows them. */}
+            {live === false && <>
+              <div className="demo-head"><b>Local demo</b><span className="muted">password <code>demo1234</code> · one click signs in</span></div>
+              <div className="demo-grid">
+                {DEMO.map(d => <button key={d.email} type="button" disabled={busy} onClick={() => { setEmail(d.email); setPassword('demo1234'); submit(d.email, 'demo1234'); }}><b>{d.who}</b>{d.role}</button>)}
+              </div>
+            </>}
             <div className="demo-links"><Link to="/register">Create a new agency</Link>{live === false && <DevOutboxLink />}</div>
           </div>
         </>) : (<>
