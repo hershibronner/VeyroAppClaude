@@ -8,6 +8,7 @@ import { dateTime, relTime } from '../../lib/format';
 import { Banner, Button, Card, CardHeader, Drawer, ErrorState, KpiRow, LoadingBlock, Menu, PageHeader, StatusPill, useConfirm } from '../../components/ui';
 import { DataTable, opts } from '../../components/DataTable';
 import { Gate, ReadOnlyNote } from './common';
+import { useStripeConnect } from './StripeConnect';
 
 const MODE_CHIP: Record<string, string> = { simulated: 'Simulated', built_in: 'Built in' };
 
@@ -22,11 +23,12 @@ function Inner({ editable }: { editable: boolean }) {
   const [params, setParams] = useSearchParams();
   const nav = useNavigate();
   const confirm = useConfirm();
-  // Back from Stripe Connect.
+  const stripe = useStripeConnect(() => { toast.success('Stripe connected — clients can now pay invoices by card'); st.reload(); });
+  // Back from Stripe Connect (this is the new tab Stripe returned to).
   useEffect(() => {
     const s = params.get('stripe'); if (!s) return;
     const m = params.get('message');
-    if (s === 'connected') toast.success('Stripe connected — clients can now pay invoices by card'); else if (s === 'cancelled') toast.info(m ?? 'Stripe connection cancelled'); else toast.error(m ?? 'Stripe connection failed');
+    if (s === 'connected') toast.success('Stripe connected — clients can now pay invoices by card. You can close this tab.'); else if (s === 'cancelled') toast.info(m ?? 'Stripe connection cancelled'); else toast.error(m ?? 'Stripe connection failed');
     params.delete('stripe'); params.delete('message'); setParams(params, { replace: true });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   if (st.error && !st.data) return <ErrorState error={st.error} retry={st.reload} />;
@@ -38,11 +40,6 @@ function Inner({ editable }: { editable: boolean }) {
     setBusy(`${it.key}:${action}`);
     try { const r = await api.post(`/api/v1/integrations/${it.key}/${action}`); r.ok ? toast.success(r.message) : toast.error(r.message); st.reload(); }
     catch (e) { toast.error(e); } finally { setBusy(''); }
-  };
-  const connectStripe = async () => {
-    setBusy('payments:connect');
-    try { const r = await api.post('/api/v1/integrations/payments/stripe/connect'); window.location.href = r.url; }
-    catch (e) { toast.error(e); setBusy(''); }
   };
   const available = rows.filter(r => r.mode !== 'unavailable');
   const testable = available.filter(r => r.status === 'connected');
@@ -82,7 +79,7 @@ function Inner({ editable }: { editable: boolean }) {
                   <td className="money">{it.errors_7d || '—'}</td>
                   <td className="act"><div className="row" style={{ gap: 6, flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
                     {editable && !off && (stripeLive && !it.account
-                      ? <Button size="xs" variant="primary" icon={<Plug size={13} />} loading={busy === 'payments:connect'} onClick={connectStripe}>Connect Stripe</Button>
+                      ? <Button size="xs" variant="primary" icon={<Plug size={13} />} loading={stripe.busy} onClick={stripe.start}>Connect Stripe</Button>
                       : it.status === 'connected' || stripeLive
                         ? <Button size="xs" icon={<PlugZap size={13} />} loading={busy === `${it.key}:test`} onClick={() => run(it, 'test')}>Test</Button>
                         : <Button size="xs" variant="primary" icon={<Plug size={13} />} loading={busy === `${it.key}:reconnect`} onClick={() => run(it, 'reconnect')}>Reconnect</Button>)}
@@ -107,6 +104,7 @@ function Inner({ editable }: { editable: boolean }) {
           emptyTitle="No log entries" emptyText="Payments, tests, syncs, connections and errors are recorded here."
           columns={[{ key: 'created_at', label: 'When', render: r => dateTime(r.created_at), mobile: 'subtitle' }, { key: 'level', label: 'Level', render: r => <StatusPill status={r.level === 'info' ? 'connected' : r.level} label={r.level} /> }, { key: 'message', label: 'Message', mobile: 'title' }, { key: 'by', label: 'By', render: r => r.meta?.by ?? 'System' }]} />}
       </Drawer>
+      {stripe.modal}
     </div>
   );
 }
