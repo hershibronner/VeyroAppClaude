@@ -1,4 +1,4 @@
-// Integrations page (simulated adapters), public API keys, outbound webhooks engine, and the audit log viewer.
+// Integrations page (real providers where available — Stripe via finance-stripe.ts — simulated ones in local dev only), public API keys, outbound webhooks engine, and the audit log viewer.
 import type { FastifyInstance } from 'fastify';
 import crypto from 'node:crypto';
 import { z } from 'zod';
@@ -12,6 +12,11 @@ import { listParams, paged, toCsv } from '../core/list';
 import { onEvent } from '../core/events';
 import { enqueue, registerJob } from '../jobs/queue';
 import { API_URL } from '../core/settings';
+import { IS_PROD } from '../core/env';
+import { emailDelivery } from '../adapters/messaging';
+import { claudeConfigured } from '../adapters/claude';
+import { stripePlatform, stripeConnection } from '../adapters/stripe';
+import { stripeTest, stripeSync, stripeDisconnect } from './finance-stripe';
 import { EVENT_CATALOG, isUuid, randomToken, sha256 } from './_admin/common';
 import { fieldError } from './_admin/common';
 
@@ -22,6 +27,22 @@ const TEST_HINTS: Record<string, string> = {
   sms: 'Validated sender number', whatsapp: 'Validated WhatsApp business profile', calendar: 'Created and deleted a test meeting', esign: 'Generated a test envelope', ai: 'Ran a 1-line extraction', job_boards: 'Listed connected job boards',
   background_checks: 'Fetched package catalog', storage: 'Wrote and read a 1 KB test file',
 };
+
+// How each adapter runs here: live (real provider), built_in (our own code, nothing to connect), simulated (local dev
+// stand-in) or unavailable (live server, real provider not built yet — shown as "Not available yet").
+type Mode = 'live' | 'built_in' | 'simulated' | 'unavailable';
+const COMING_SOON: Record<string, string> = { payouts: 'Wise', accounting: 'QuickBooks Online', calendar: 'Google Calendar & Meet', background_checks: 'Checkr', job_boards: 'Job board syndication', sms: 'SMS', whatsapp: 'WhatsApp' };
+function adapterInfo(key: string, dbProvider: string): { mode: Mode; provider: string; note?: string } {
+  const sp = stripePlatform();
+  if (key === 'payments') return sp ? { mode: 'live', provider: 'Stripe', note: sp.testMode ? 'Stripe test mode' : undefined }
+    : IS_PROD ? { mode: 'unavailable', provider: 'Stripe', note: 'Stripe is not set up on this server yet' } : { mode: 'simulated', provider: 'Stripe (simulated)' };
+  if (key === 'email') return emailDelivery() ? { mode: 'live', provider: 'Email (Resend)' } : { mode: IS_PROD ? 'unavailable' : 'simulated', provider: 'Email (Dev Outbox)' };
+  if (key === 'ai') return claudeConfigured() ? { mode: 'live', provider: 'Claude (Anthropic)' } : { mode: 'built_in', provider: 'Veyro Local AI (deterministic)' };
+  if (key === 'storage') return { mode: 'built_in', provider: IS_PROD ? 'Built-in file storage' : dbProvider };
+  if (key === 'esign') return { mode: 'built_in', provider: dbProvider };
+  if (COMING_SOON[key]) return IS_PROD ? { mode: 'unavailable', provider: COMING_SOON[key], note: 'Coming soon' } : { mode: 'simulated', provider: dbProvider };
+  return { mode: IS_PROD ? 'unavailable' : 'simulated', provider: dbProvider };
+}
 
 // ───────────── Webhook delivery engine ─────────────
 async function createDelivery(orgId: string, ep: any, event: string, data: Record<string, unknown>, eventId?: string) {
@@ -90,7 +111,18 @@ export default async function (app: FastifyInstance) {
     const rows = await q<any>(`SELECT i.*, (SELECT count(*)::int FROM integration_logs l WHERE l.organization_id=i.organization_id AND l.integration_key=i.key AND l.level='error' AND l.created_at > now() - interval '7 days') errors_7d,
       (SELECT count(*)::int FROM integration_logs l WHERE l.organization_id=i.organization_id AND l.integration_key=i.key AND l.created_at > now() - interval '7 days') events_7d
       FROM integrations i WHERE i.organization_id=$1 ORDER BY i.category, i.provider`, [ctx.orgId]);
-    return { rows: rows.map(r => ({ ...r, config: undefined })), editable: can(ctx, 'integrations', 'edit') };
+    const conn = await stripeConnection(ctx.orgId);
+    const out = [];
+    for (const r of rows) {
+      const info = adapterInfo(r.key, r.provider);
+      // Real Stripe: the row is only "connected" while a Stripe account is actually linked.
+      if (r.key === 'payments' && info.mode === 'live' && !conn && r.status === 'connected') {
+        await q(`UPDATE integrations SET status='disconnected', last_error=NULL, last_sync_at=NULL, updated_at=now() WHERE organization_id=$1 AND key='payments'`, [ctx.orgId]);
+        Object.assign(r, { status: 'disconnected', last_error: null, last_sync_at: null });
+      }
+      out.push({ ...r, ...info, config: undefined, account: r.key === 'payments' && conn ? { id: conn.external_account_id, name: conn.account_name, livemode: conn.livemode, connected_at: conn.created_at } : null });
+    }
+    return { rows: out, editable: can(ctx, 'integrations', 'edit'), env: IS_PROD ? 'production' : 'local' };
   });
   app.get('/api/v1/integrations/:key/logs', async (req) => {
     const ctx = staff(req); need(ctx, 'integrations', 'view');
@@ -104,9 +136,19 @@ export default async function (app: FastifyInstance) {
   const integrationAction = (action: 'connect' | 'reconnect' | 'disconnect' | 'test' | 'sync' | 'simulate_error') => async (req: any) => {
     const ctx = staff(req); need(ctx, 'integrations', 'edit');
     const it = await integrationOr404(ctx, req.params.key);
+    const info = adapterInfo(it.key, it.provider);
+    if (info.mode === 'unavailable') throw conflict(`${info.provider} is not available yet`);
+    if (action === 'simulate_error' && (IS_PROD || info.mode === 'live')) throw conflict('Simulated errors are only available for simulated adapters in local dev');
+    if (it.key === 'payments' && info.mode === 'live') {
+      if (action === 'connect' || action === 'reconnect') throw conflict('Use Connect Stripe to link a Stripe account');
+      const r = action === 'test' ? await stripeTest(ctx.orgId) : action === 'sync' ? await stripeSync(ctx.orgId) : await stripeDisconnect(ctx.orgId);
+      await logIntegration(ctx.orgId, it.key, r.ok ? (action === 'disconnect' ? 'warn' : 'info') : 'error', r.message, { by: ctx.user.name, action });
+      if (action === 'disconnect') await audit(ctx, 'integration.disconnect', { type: 'integration', id: it.key, label: 'Stripe' }, { status: it.status }, { status: 'disconnected' });
+      return { ok: r.ok, status: (await integrationOr404(ctx, it.key)).status, message: r.message };
+    }
     const before = { status: it.status, last_error: it.last_error };
     let status = it.status; let lastError = it.last_error; let message = ''; let level: 'info' | 'warn' | 'error' = 'info'; let ok = true;
-    if (action === 'connect' || action === 'reconnect') { status = 'connected'; lastError = null; message = `${action === 'connect' ? 'Connected' : 'Reconnected'} to ${it.provider} (simulated OAuth, scopes: ${it.scopes.join(', ')})`; }
+    if (action === 'connect' || action === 'reconnect') { status = 'connected'; lastError = null; message = `${action === 'connect' ? 'Connected' : 'Reconnected'} to ${info.provider} (${info.mode === 'simulated' ? 'simulated OAuth, ' : ''}scopes: ${it.scopes.join(', ')})`; }
     else if (action === 'disconnect') { status = 'disconnected'; message = `Disconnected from ${it.provider}`; level = 'warn'; }
     else if (action === 'simulate_error') { status = 'error'; lastError = 'Simulated provider error: 503 Service Unavailable'; message = lastError; level = 'error'; }
     else if (action === 'test' || action === 'sync') {

@@ -1,5 +1,5 @@
 // FINANCE — payments, refunds, AR aging & collections, reconciliation, accounting sync,
-// public pay page (simulated Stripe checkout) and the client portal invoices.
+// public pay page (Stripe Checkout when the agency connected Stripe; the simulated card form in local dev) and the client portal invoices.
 import type { FastifyInstance } from 'fastify';
 import crypto from 'node:crypto';
 import { z } from 'zod';
@@ -10,7 +10,10 @@ import { audit, activity } from '../core/audit';
 import { listParams, paged } from '../core/list';
 import { rateLimit } from '../core/ratelimit';
 import { WEB_URL } from '../core/settings';
+import { IS_PROD } from '../core/env';
 import { charge, refund } from '../adapters/payments';
+import { stripeConnection } from '../adapters/stripe';
+import { createInvoiceCheckout, confirmInvoiceCheckout, stripeRefund } from './finance-stripe';
 import { syncEntity, type SyncEntity } from '../adapters/accounting';
 import { applyPayment, refundPayment, balanceOf } from './_finance/invoices';
 import { fmt, orgToday, orgBranding, billingContact, OPEN_INVOICE, daysBetween } from './_finance/common';
@@ -29,6 +32,9 @@ const cardBody = z.object({ card_number: z.string().min(12, 'Enter your card num
 
 /** Charges a card through the simulated Stripe adapter and applies the payment (shared by public page). */
 async function payByCard(orgId: string, inv: any, b: z.infer<typeof cardBody>, actorId: string | null) {
+  const mode = await checkoutMode(orgId);
+  if (mode === 'none') throw conflict('Online card payment is not set up for this agency yet');
+  if (mode === 'stripe') throw conflict('Card details are taken on the secure Stripe checkout page — refresh and click Pay');
   const balance = balanceOf(inv);
   if (!OPEN_INVOICE.includes(inv.status)) throw conflict(inv.status === 'paid' ? 'This invoice is already paid in full' : 'This invoice is not open for payment');
   const amount = b.amount_cents ?? balance;
@@ -44,6 +50,12 @@ async function payByCard(orgId: string, inv: any, b: z.infer<typeof cardBody>, a
   });
   if (res.ok && !r.duplicate) await afterPayment(orgId, r.invoice, r.payment, inv.status);
   return { ...r, declined: !res.ok, message: res.ok ? null : res.message };
+}
+
+/** How the pay page takes cards: real Stripe Checkout, the local simulator, or not at all (live server, Stripe not connected). */
+async function checkoutMode(orgId: string): Promise<'stripe' | 'simulated' | 'none'> {
+  if (await stripeConnection(orgId)) return 'stripe';
+  return IS_PROD ? 'none' : 'simulated';
 }
 
 async function publicInvoice(token: string) {
@@ -81,7 +93,7 @@ export default async function (app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const b = z.object({ amount_cents: z.number().int().positive('Amount must be positive'), reason: z.string().trim().min(3, 'A reason is required') }).parse(req.body);
     const pay = await getOr404<any>('payments', ctx, id);
-    const ext = pay.method === 'card' ? await refund(ctx.orgId, { chargeRef: pay.provider_ref, amountCents: b.amount_cents, currency: pay.currency, reason: b.reason }) : { ref: null };
+    const ext = pay.provider === 'stripe' ? await stripeRefund(ctx.orgId, pay, b.amount_cents, b.reason) : pay.method === 'card' ? await refund(ctx.orgId, { chargeRef: pay.provider_ref, amountCents: b.amount_cents, currency: pay.currency, reason: b.reason }) : { ref: null };
     const r = await tx(async c => {
       const res = await refundPayment(c, ctx.orgId, id, b.amount_cents, b.reason, ctx.userId, ext.ref);
       await activity(ctx, 'invoice', pay.invoice_id, 'payment', `Refund ${res.credit.number} of ${fmt(b.amount_cents, pay.currency)} issued`, b.reason, { payment_id: id }, c);
@@ -205,11 +217,12 @@ export default async function (app: FastifyInstance) {
     const lines = await q<any>(`SELECT description, kind, minutes, quantity, unit_price_cents, amount_cents FROM invoice_lines WHERE invoice_id=$1 ORDER BY sort`, [inv.id]);
     const payments = await q<any>(`SELECT amount_cents, refunded_cents, currency, method, status, card_brand, card_last4, receipt_number, received_at, failure_reason FROM payments WHERE invoice_id=$1 ORDER BY received_at DESC`, [inv.id]);
     const contact = await billingContact(pool, inv.organization_id, inv.company_id);
+    const checkout = await checkoutMode(inv.organization_id);
     return {
-      org: { name: brand.name, logo_text: brand.logo_text, primary_color: brand.primary_color, accent_color: brand.accent_color, support_email: brand.support_email, hide_powered_by: brand.hide_powered_by },
+      checkout, org: { name: brand.name, logo_text: brand.logo_text, primary_color: brand.primary_color, accent_color: brand.accent_color, support_email: brand.support_email, hide_powered_by: brand.hide_powered_by },
       invoice: { number: inv.number, status: inv.status, issue_date: inv.issue_date, due_date: inv.due_date, period_start: inv.period_start, period_end: inv.period_end, currency: inv.currency, subtotal_cents: inv.subtotal_cents, tax_bp: inv.tax_bp, tax_cents: inv.tax_cents, discount_cents: inv.discount_cents, credit_cents: inv.credit_cents, late_fee_cents: inv.late_fee_cents, previous_balance_cents: inv.previous_balance_cents, total_cents: inv.total_cents, paid_cents: inv.paid_cents, balance_cents: balanceOf(inv), company_name: inv.company_name, notes: inv.notes },
       lines, payments, payable: OPEN_INVOICE.includes(inv.status) && balanceOf(inv) > 0, contact_email: contact?.email ?? null,
-      test_cards: [{ number: '4242 4242 4242 4242', result: 'Succeeds' }, { number: '4000 0000 0000 0002', result: 'Declined' }, { number: '4000 0000 0000 9995', result: 'Insufficient funds' }],
+      test_cards: checkout !== 'simulated' ? [] : [{ number: '4242 4242 4242 4242', result: 'Succeeds' }, { number: '4000 0000 0000 0002', result: 'Declined' }, { number: '4000 0000 0000 9995', result: 'Insufficient funds' }],
     };
   });
 
@@ -232,6 +245,30 @@ export default async function (app: FastifyInstance) {
     return { status: p.status, declined: p.status === 'failed', message: p.status === 'failed' ? p.failure_reason : null, duplicate: r.duplicate,
       receipt: p.status === 'succeeded' ? { number: p.receipt_number, amount_cents: p.amount_cents, currency: p.currency, card_brand: p.card_brand, card_last4: p.card_last4, received_at: p.received_at, emailed_to: p.payer_email ?? (await billingContact(pool, inv.organization_id, inv.company_id))?.email ?? null } : null,
       invoice: { number: r.invoice.number, status: r.invoice.status, total_cents: r.invoice.total_cents, paid_cents: r.invoice.paid_cents, balance_cents: balanceOf(r.invoice) } };
+  });
+
+  // Real card payment: creates a Stripe Checkout Session on the agency's connected account and returns its URL.
+  app.post('/api/v1/public/pay/:token/checkout', { config: { public: true } }, async (req) => {
+    const { token } = req.params as { token: string };
+    await rateLimit(`pay:${req.ip}`, 10, 60);
+    await rateLimit(`pay-token:${token.slice(0, 64)}`, 20, 3600);
+    const inv = await publicInvoice(token);
+    const b = z.object({ amount_cents: z.number().int().positive().optional(), email: z.string().email('Enter a valid email').optional().or(z.literal('')) }).parse(req.body ?? {});
+    if (b.amount_cents && b.amount_cents > balanceOf(inv)) throw badRequest(`You can pay at most ${fmt(balanceOf(inv), inv.currency)} (the open balance)`, { amount_cents: 'Exceeds open balance' });
+    return createInvoiceCheckout(req, inv, token, b.amount_cents, b.email || (await billingContact(pool, inv.organization_id, inv.company_id))?.email);
+  });
+
+  // Back from Stripe Checkout: confirm the session and return the receipt (the webhook records it too; both are idempotent).
+  app.get('/api/v1/public/pay/:token/checkout/:sessionId', { config: { public: true } }, async (req) => {
+    const { token, sessionId } = req.params as { token: string; sessionId: string };
+    await rateLimit(`pay-view:${req.ip}`, 120, 60);
+    const inv = await publicInvoice(token);
+    const r = await confirmInvoiceCheckout(inv.organization_id, sessionId);
+    if (!r || r.session.metadata?.invoice_id !== inv.id) throw notFound('This checkout session was not found');
+    const p = r.payment; const fresh = await one<any>(`SELECT * FROM invoices WHERE id=$1`, [inv.id]);
+    return { status: p ? p.status : r.session.payment_status === 'paid' ? 'processing' : 'unpaid',
+      receipt: p && p.status !== 'failed' ? { number: p.receipt_number, amount_cents: p.amount_cents, currency: p.currency, card_brand: p.card_brand, card_last4: p.card_last4, received_at: p.received_at, emailed_to: p.payer_email ?? (await billingContact(pool, inv.organization_id, inv.company_id))?.email ?? null } : null,
+      invoice: { number: fresh.number, status: fresh.status, total_cents: fresh.total_cents, paid_cents: fresh.paid_cents, balance_cents: balanceOf(fresh) } };
   });
 
   // ── Client portal: invoices & pay now ──

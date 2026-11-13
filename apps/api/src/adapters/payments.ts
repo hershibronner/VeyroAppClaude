@@ -46,6 +46,8 @@ export function validateCard(c: CardInput, today = new Date()): Record<string, s
 }
 
 async function gate(db: Db, orgId: string) {
+  // With real Stripe set up on the server, the 'payments' row tracks the real connection, not this simulator.
+  if (process.env.STRIPE_SECRET_KEY && process.env.STRIPE_CONNECT_CLIENT_ID) return;
   const i = await one<any>(`SELECT status FROM integrations WHERE organization_id=$1 AND key='payments'`, [orgId], db);
   if (i && i.status !== 'connected') {
     await log(db, orgId, 'error', 'Charge blocked: payments integration is disconnected', {});
