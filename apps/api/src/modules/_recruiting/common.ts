@@ -6,6 +6,7 @@ import { need, scopeOf, canViewComp } from '../../core/context';
 import { one, q } from '../../core/db';
 import { forbidden, notFound } from '../../core/errors';
 import { signedUrl, resolveSafe } from '../../core/storage';
+import { IS_PROD } from '../../core/env';
 import type { Resource, Action } from '@veyro/shared';
 
 /*
@@ -97,7 +98,8 @@ export async function assertEditLinked(ctx: Ctx, resource: Resource, positionId:
 /* ── Files ── */
 export function fileUrl(rel: string | null | undefined, ttl = 3600): string | null {
   if (!rel) return null;
-  try { if (!fs.existsSync(resolveSafe(rel))) return null; } catch { return null; }
+  // Locally, skip seeded rows whose demo file was never written. In production the disk is a cache (see core/storage), so always sign.
+  if (!IS_PROD) { try { if (!fs.existsSync(resolveSafe(rel))) return null; } catch { return null; } }
   return signedUrl(rel, ttl);
 }
 export function fullName(c: any) { return [c?.first_name, c?.last_name].filter(Boolean).join(' '); }

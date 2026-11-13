@@ -8,7 +8,7 @@ import { auth, staff, getOr404 } from './context';
 import { notFound, forbidden, HttpError } from './errors';
 import { IS_PROD } from './env';
 import { addConn } from './realtime';
-import { verifySignature, resolveSafe, MIME } from './storage';
+import { verifySignature, ensureLocal, MIME } from './storage';
 import { activity } from './audit';
 import { notify } from './notify';
 import { listParams, paged } from './list';
@@ -123,9 +123,8 @@ export default async function coreRoutes(app: FastifyInstance) {
     const rel = decodeURIComponent((req.params as any)['*'] as string);
     const { exp, sig, dl } = req.query as Record<string, string>;
     if (!verifySignature(rel, exp, sig)) throw forbidden('This link has expired. Refresh the page to get a new one.');
-    let abs: string;
-    try { abs = resolveSafe(rel); } catch { throw notFound(); }
-    if (!fs.existsSync(abs)) throw notFound();
+    const abs = await ensureLocal(rel);
+    if (!abs) throw notFound();
     const ext = path.extname(abs).slice(1).toLowerCase();
     reply.header('Content-Type', MIME[ext] ?? 'application/octet-stream');
     reply.header('Cache-Control', 'private, max-age=600');
