@@ -4,7 +4,13 @@ import { Link } from 'react-router-dom';
 import { ArrowRight, ArrowUpRight, Check, X, ShieldCheck, KeyRound, ScrollText, Lock, Building2 } from 'lucide-react';
 import { api, ApiError } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { isMarketingSite, appHref } from '../lib/site';
 import './landing.css';
+
+// App links leave the marketing site for the portal, so they're plain anchors there; in-app they stay router links.
+function AppLink({ to, className, children }: { to: string; className?: string; children: ReactNode }) {
+  return isMarketingSite ? <a href={appHref(to)} className={className}>{children}</a> : <Link to={to} className={className}>{children}</Link>;
+}
 
 /* Public marketing page (/home): what VeyroApp is, before you sign in. Pure CSS/canvas animation, no extra libraries;
    everything respects prefers-reduced-motion. CTAs: Get started (→ /register) and Contact us (centered dialog). */
@@ -395,7 +401,7 @@ function ContactDialog({ onClose }: { onClose: () => void }) {
             <div className="lp-done-ic"><Check size={26} /></div>
             <h3 id="lp-contact-title">Thanks, {f.name.split(' ')[0] || 'there'}.</h3>
             <p>Your message is with our team. We’ll reply to <b>{f.email}</b> soon.</p>
-            <div className="lp-row"><button className="lp-btn lp-btn-blue" onClick={onClose}>Done</button><Link to="/register" className="lp-btn lp-btn-ghost">Create your agency <ArrowRight size={16} /></Link></div>
+            <div className="lp-row"><button className="lp-btn lp-btn-blue" onClick={onClose}>Done</button><AppLink to="/register" className="lp-btn lp-btn-ghost">Create your agency <ArrowRight size={16} /></AppLink></div>
           </div>
         ) : (<>
           <div className="lp-eyebrow lp-blue">Contact us</div>
@@ -446,18 +452,18 @@ export default function LandingPage() {
 
   return (
     <div className="lp" ref={root}>
-      {bar && <div className="lp-bar"><Link to="/register">New: AI candidate matching, built into recruiting <ArrowRight size={13} /></Link><button onClick={() => setBar(false)} aria-label="Dismiss"><X size={16} /></button></div>}
+      {bar && <div className="lp-bar"><AppLink to="/register">New: AI candidate matching, built into recruiting <ArrowRight size={13} /></AppLink><button onClick={() => setBar(false)} aria-label="Dismiss"><X size={16} /></button></div>}
 
       <header className={`lp-nav${scrolled ? ' scrolled' : ''}${bar ? ' with-bar' : ''}`}>
-        <Link to="/home" className="lp-logo" aria-label="VeyroApp home"><span className="lp-mark" aria-hidden><i /><i /></span>VeyroApp</Link>
+        <Link to={isMarketingSite ? '/' : '/home'} className="lp-logo" aria-label="VeyroApp home"><span className="lp-mark" aria-hidden><i /><i /></span>VeyroApp</Link>
         <nav className={menu ? 'open' : ''}>
           <a href="#platform" onClick={() => setMenu(false)}>Platform</a>
           <a href="#modules" onClick={() => setMenu(false)}>Modules</a>
           <a href="#how" onClick={() => setMenu(false)}>How it works</a>
           <button onClick={openContact}>Contact</button>
-          {appLink ? <Link to={appLink}>Open app</Link> : <Link to="/login">Sign in</Link>}
+          {appLink ? <AppLink to={appLink}>Open app</AppLink> : <AppLink to="/login">Sign in</AppLink>}
         </nav>
-        <Link to="/register" className="lp-btn lp-btn-blue lp-nav-cta">Get started</Link>
+        <AppLink to="/register" className="lp-btn lp-btn-blue lp-nav-cta">Get started</AppLink>
         <button className="lp-burger" aria-label="Menu" aria-expanded={menu} onClick={() => setMenu(m => !m)}><i /><i /></button>
       </header>
 
@@ -468,7 +474,7 @@ export default function LandingPage() {
           <h1><span className="lp-line"><span>The all-in-one</span></span><span className="lp-line"><span>staffing platform.</span></span></h1>
           <p className="lp-hero-sub">Leads, recruiting, placements, time tracking, payroll and invoicing — one workspace, one source of truth, one login.</p>
           <div className="lp-row lp-hero-cta">
-            <Link to="/register" className="lp-btn lp-btn-blue lp-btn-lg">Get started <ArrowRight size={18} /></Link>
+            <AppLink to="/register" className="lp-btn lp-btn-blue lp-btn-lg">Get started <ArrowRight size={18} /></AppLink>
             <button onClick={openContact} className="lp-btn lp-btn-white lp-btn-lg">Contact us</button>
           </div>
         </div>
@@ -493,7 +499,7 @@ export default function LandingPage() {
           <h2 data-reveal>Run your whole agency<br />from one place.</h2>
           <p className="lp-lead" data-reveal>Create your workspace in a few minutes, or talk to us first. Every agency is reviewed by our team before going live.</p>
           <div className="lp-row" data-reveal>
-            <Link to="/register" className="lp-btn lp-btn-blue lp-btn-lg">Create your agency <ArrowRight size={18} /></Link>
+            <AppLink to="/register" className="lp-btn lp-btn-blue lp-btn-lg">Create your agency <ArrowRight size={18} /></AppLink>
             <button onClick={openContact} className="lp-btn lp-btn-white lp-btn-lg">Contact us <ArrowUpRight size={18} /></button>
           </div>
         </div>
@@ -504,7 +510,7 @@ export default function LandingPage() {
           <span className="lp-mark big" aria-hidden><i /><i /></span>
           <div className="lp-foot-cols">
             <div><h5>Product</h5><a href="#platform">Platform</a><a href="#modules">Modules</a><a href="#how">How it works</a></div>
-            <div><h5>Get started</h5><Link to="/register">Create an agency</Link><Link to="/login">Sign in</Link><button onClick={openContact}>Contact us</button></div>
+            <div><h5>Get started</h5><AppLink to="/register">Create an agency</AppLink><AppLink to="/login">Sign in</AppLink><button onClick={openContact}>Contact us</button></div>
             <div><h5>Company</h5><span>© {new Date().getFullYear()} VeyroApp</span></div>
           </div>
         </div>
