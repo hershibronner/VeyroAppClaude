@@ -362,12 +362,12 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
   background: #fff; border-radius: 30px; box-shadow: 0 40px 90px -30px rgba(73, 66, 230, .35), 0 2px 6px rgba(20, 20, 60, .04); animation: authRise .6s cubic-bezier(.2, .8, .2, 1) both; }
 .auth-brand { position: relative; overflow: hidden; isolation: isolate; border-radius: 22px; padding: 30px 36px 40px; color: #fff; display: flex; flex-direction: column; justify-content: space-between;
   background: #C9D6FF; }
-:is(.auth-brand, .wb-side) .blob { position: absolute; border-radius: 50%; filter: blur(48px); z-index: -1; will-change: transform; }
-:is(.auth-brand, .wb-side) .b1 { width: 70%; height: 80%; left: -12%; top: 18%; background: radial-gradient(circle at 40% 40%, #06063F 0%, #1A1AB8 45%, rgba(61, 90, 254, 0) 72%); animation: authDrift1 16s ease-in-out infinite alternate; }
-:is(.auth-brand, .wb-side) .b2 { width: 70%; height: 70%; right: -20%; top: -18%; background: radial-gradient(circle, #B66CFF 0%, rgba(182, 108, 255, 0) 70%); animation: authDrift2 19s ease-in-out infinite alternate; }
-:is(.auth-brand, .wb-side) .b3 { width: 60%; height: 60%; left: 30%; top: 25%; background: radial-gradient(circle, #BFEAFF 0%, rgba(191, 234, 255, 0) 70%); animation: authDrift3 14s ease-in-out infinite alternate; }
-:is(.auth-brand, .wb-side) .b4 { width: 80%; height: 50%; left: -10%; bottom: -22%; background: radial-gradient(circle, #8E7BFF 0%, rgba(142, 123, 255, 0) 70%); animation: authDrift2 22s ease-in-out infinite alternate-reverse; }
-:is(.auth-brand, .wb-side) .grain { position: absolute; inset: 0; z-index: -1; opacity: .18; mix-blend-mode: overlay; background-image: radial-gradient(rgba(255, 255, 255, .7) 1px, transparent 1px); background-size: 3px 3px; }
+:is(.auth-brand, .wb-side, .ig-hero) .blob { position: absolute; border-radius: 50%; filter: blur(48px); z-index: -1; will-change: transform; }
+:is(.auth-brand, .wb-side, .ig-hero) .b1 { width: 70%; height: 80%; left: -12%; top: 18%; background: radial-gradient(circle at 40% 40%, #06063F 0%, #1A1AB8 45%, rgba(61, 90, 254, 0) 72%); animation: authDrift1 16s ease-in-out infinite alternate; }
+:is(.auth-brand, .wb-side, .ig-hero) .b2 { width: 70%; height: 70%; right: -20%; top: -18%; background: radial-gradient(circle, #B66CFF 0%, rgba(182, 108, 255, 0) 70%); animation: authDrift2 19s ease-in-out infinite alternate; }
+:is(.auth-brand, .wb-side, .ig-hero) .b3 { width: 60%; height: 60%; left: 30%; top: 25%; background: radial-gradient(circle, #BFEAFF 0%, rgba(191, 234, 255, 0) 70%); animation: authDrift3 14s ease-in-out infinite alternate; }
+:is(.auth-brand, .wb-side, .ig-hero) .b4 { width: 80%; height: 50%; left: -10%; bottom: -22%; background: radial-gradient(circle, #8E7BFF 0%, rgba(142, 123, 255, 0) 70%); animation: authDrift2 22s ease-in-out infinite alternate-reverse; }
+:is(.auth-brand, .wb-side, .ig-hero) .grain { position: absolute; inset: 0; z-index: -1; opacity: .18; mix-blend-mode: overlay; background-image: radial-gradient(rgba(255, 255, 255, .7) 1px, transparent 1px); background-size: 3px 3px; }
 .auth-brand .mark { width: 44px; height: 44px; color: #fff; }
 .auth-brand .mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; opacity: .85; }
 .auth-brand .lead { font-size: 16px; margin: 0 0 12px; opacity: .92; }
@@ -380,7 +380,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
 @keyframes authDrift1 { to { transform: translate(14%, -10%) scale(1.15); } }
 @keyframes authDrift2 { to { transform: translate(-18%, 16%) scale(.9); } }
 @keyframes authDrift3 { to { transform: translate(-22%, 12%) scale(1.2); } }
-@media (prefers-reduced-motion: reduce) { .auth-shell, :is(.auth-brand, .wb-side) .blob { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .auth-shell, :is(.auth-brand, .wb-side, .ig-hero) .blob { animation: none; } }
 .auth-card h1 { margin: 0 0 8px; font-size: 32px; font-weight: 600; letter-spacing: -0.03em; color: var(--a-text); }
 .auth-card .sub { color: var(--a-muted); margin: 0 0 26px; font-size: 14px; line-height: 1.55; }
 .auth-card .field > label { font-size: 14px; font-weight: 500; color: var(--a-text); }
