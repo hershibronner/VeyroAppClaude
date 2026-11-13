@@ -5,6 +5,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Check, Eye, EyeOff, ImagePlus, FileCheck2, Lock, Mail, User, Building2, Globe, Phone, MapPin, Sparkles, MailCheck } from 'lucide-react';
 import { api, ApiError, setCsrf } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { BrandMark } from './Auth';
 import './signup.css';
 
 const INDUSTRIES = ['Dental', 'Medical', 'Real estate', 'Insurance', 'E-commerce', 'Legal', 'Accounting', 'Marketing', 'Customer support', 'Tech / IT', 'Home services', 'Logistics'];
@@ -132,10 +133,12 @@ export default function SignupPage() {
   const pct = Math.round((stage / (STAGES.length - 1)) * 100);
 
   return (
+    <div className="wb-page">
     <div className="wb" style={{ ['--brand' as any]: v.color }}>
       {/* ── Steps ── */}
       <aside className="wb-side">
-        <div className="wb-side-top"><span className="wb-mark">V</span><b>VeyroApp</b><span className="wb-tag">for staffing agencies</span></div>
+        <i className="blob b1" /><i className="blob b2" /><i className="blob b3" /><i className="blob b4" /><i className="grain" />
+        <div className="wb-side-top"><BrandMark className="wb-mark" /><b>VeyroApp</b><span className="wb-tag">for staffing agencies</span></div>
         <div className="wb-intro">
           <h2>Set up your agency in a few minutes.</h2>
           <p>Five short steps to get your workspace ready.</p>
@@ -215,6 +218,7 @@ export default function SignupPage() {
           <button type="button" className="wb-btn" onClick={() => (last ? submit() : go(stage + 1))} disabled={busy}>{busy ? <span className="spinner" /> : null}{last ? 'Submit application' : stage === 0 && !token ? (codeSent ? 'Verify email' : 'Send verification code') : stage === 3 && !logo ? 'Skip for now' : 'Continue'}{!busy && !last && <ArrowRight size={16} />}</button>
         </div>
       </main>
+    </div>
     </div>
   );
 }

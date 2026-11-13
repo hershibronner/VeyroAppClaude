@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Check, Hourglass, MailCheck, RefreshCw, LogOut, Lock, LayoutDashboard, Briefcase, Users, Inbox, BarChart3, XCircle } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { BrandMark } from './Auth';
 import { useInterval } from '../lib/hooks';
 import { dateTime } from '../lib/format';
 import { toast } from '../lib/toast';
@@ -31,9 +32,11 @@ export default function PendingApproval() {
   };
   const first = me!.user.name.split(' ')[0];
   return (
+    <div className="wb-page">
     <div className="wb" style={{ ['--brand' as any]: brand }}>
       <aside className="wb-side">
-        <div className="wb-side-top"><span className="wb-mark">V</span><b>VeyroApp</b><span className="wb-tag">{rejected ? 'Not approved' : 'Under review'}</span></div>
+        <i className="blob b1" /><i className="blob b2" /><i className="blob b3" /><i className="blob b4" /><i className="grain" />
+        <div className="wb-side-top"><BrandMark className="wb-mark" /><b>VeyroApp</b><span className="wb-tag">{rejected ? 'Not approved' : 'Under review'}</span></div>
         <div className="wb-preview" aria-hidden style={{ position: 'relative' }}>
           <div className="wb-pv-bar"><i /><i /><i /><span>app.veyro/{ws.org.slug}</span></div>
           <div className="wb-pv-body" style={{ filter: 'blur(1.5px) saturate(.7)', opacity: .8 }}>
@@ -73,6 +76,7 @@ export default function PendingApproval() {
           {!rejected && <button type="button" className="wb-btn" onClick={() => check()} disabled={checking}>{checking ? <span className="spinner" /> : <RefreshCw size={16} />} Check status</button>}
         </div>
       </main>
+    </div>
     </div>
   );
 }
