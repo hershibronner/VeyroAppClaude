@@ -74,32 +74,51 @@ export function emailHtml({ fromName, subject, text, templateKey, live }: EmailL
 </td></tr>` : '';
 
   const m = manage as string | null;
-  return `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="color-scheme" content="light only"/><title>${escapeHtml(subject ?? fromName)}</title></head>
-<body style="margin:0;padding:0;background:#000000;-webkit-font-smoothing:antialiased">
+  const W = (process.env.WEB_URL || 'https://portal.voicechart.app').replace(/\/$/, '');
+  const bars = (w: number, h: number, color: string) => `<div style="width:${w}px;height:${h}px;background:${color};border-radius:1px ${h}px ${h}px 1px;font-size:0;line-height:0">&nbsp;</div><div style="height:${Math.round(h / 3)}px;font-size:0;line-height:0">&nbsp;</div><div style="width:${w}px;height:${h}px;background:${color};border-radius:1px ${h}px ${h}px 1px;font-size:0;line-height:0">&nbsp;</div>`;
+  return `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="color-scheme" content="light only"/><meta name="supported-color-schemes" content="light"/><title>${escapeHtml(subject ?? fromName)}</title></head>
+<body style="margin:0;padding:0;background:#EEF1F6;-webkit-font-smoothing:antialiased">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0">${escapeHtml(code ? `Your code is ${code}` : (paras[1] ?? paras[0] ?? '').slice(0, 120))}</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#000000"><tr><td align="center" style="padding:36px 14px 40px">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:580px">
-  <tr><td style="padding:0 6px 22px">
-    <table role="presentation" cellpadding="0" cellspacing="0"><tr>
-      <td style="vertical-align:middle;padding-right:10px"><div style="width:26px;height:8px;background:${BLUE};border-radius:1px 9px 9px 1px"></div><div style="width:26px;height:2px"></div><div style="width:26px;height:8px;background:${BLUE};border-radius:1px 9px 9px 1px"></div></td>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#EEF1F6"><tr><td align="center" style="padding:32px 12px 40px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;border-radius:10px;overflow:hidden;box-shadow:0 20px 50px -20px rgba(11,13,18,.35)">
+  <!-- announcement bar -->
+  <tr><td align="center" style="background:${BLUE};padding:9px 16px;font-family:${MONO};font-size:11.5px;letter-spacing:1px;color:#ffffff;text-transform:uppercase">${escapeHtml(eyebrow)}</td></tr>
+  <!-- hero -->
+  <tr><td style="background:#000000;background-image:radial-gradient(circle at 85% -10%,rgba(30,110,243,.55),rgba(0,0,0,0) 55%);padding:30px 40px 40px">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+      <td style="vertical-align:middle;width:36px">${bars(26, 8, BLUE)}</td>
       <td style="vertical-align:middle;font-family:${SANS};font-size:20px;font-weight:600;letter-spacing:-.6px;color:#ffffff">${escapeHtml(fromName)}</td>
+      <td align="right" style="vertical-align:middle;font-family:${MONO};font-size:11px;color:#8D94A8">${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
     </tr></table>
+    <div style="height:46px;font-size:0;line-height:0">&nbsp;</div>
+    <div style="font-family:${MONO};font-size:13px;color:${BLUE};margin-bottom:14px">// ${escapeHtml(eyebrow.toLowerCase())}</div>
+    <div style="font-family:${SANS};font-size:36px;line-height:1.08;font-weight:600;letter-spacing:-1.4px;color:#ffffff">${escapeHtml(headline)}</div>
   </td></tr>
-  <tr><td style="background:#ffffff;border-radius:8px;overflow:hidden">
+  <!-- body -->
+  <tr><td style="background:#ffffff">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-      <tr><td style="height:4px;background:${BLUE};font-size:0;line-height:0">&nbsp;</td></tr>
-      <tr><td style="padding:34px 40px 6px;font-family:${SANS}">
-        <div style="font-family:${MONO};font-size:12px;letter-spacing:.5px;color:${BLUE};margin-bottom:12px">// ${escapeHtml(eyebrow.toLowerCase())}</div>
-        <div style="font-size:28px;line-height:1.15;font-weight:600;letter-spacing:-.9px;color:${INK}">${escapeHtml(headline)}</div>
-      </td></tr>
-      <tr><td style="padding:22px 40px 4px;font-family:${SANS}">${body}</td></tr>
+      <tr><td style="padding:34px 40px 6px;font-family:${SANS}">${body}</td></tr>
       ${codeCard}${button}
-      <tr><td style="padding:28px 40px 0"><div style="height:1px;background:${LINE};font-size:0;line-height:0">&nbsp;</div></td></tr>
-      <tr><td style="padding:16px 40px 28px;font-family:${SANS};font-size:12.5px;line-height:1.55;color:${MUTE}">You received this because of activity on your ${escapeHtml(fromName)} account. If this wasn't you, you can safely ignore it.</td></tr>
+      <tr><td style="padding:30px 40px 34px">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F4F6FA;border-radius:6px;border-left:3px solid ${BLUE}"><tr><td style="padding:14px 18px;font-family:${SANS};font-size:13px;line-height:1.55;color:${MUTE}">
+          <b style="color:${INK}">Didn't expect this?</b> You received it because of activity on your ${escapeHtml(fromName)} account. If it wasn't you, you can safely ignore it.
+        </td></tr></table>
+      </td></tr>
     </table>
   </td></tr>
-  <tr><td style="padding:22px 6px 0;font-family:${MONO};font-size:11.5px;line-height:1.7;color:#5B6273">
-    ${live ? 'Sent with <span style="color:#ffffff">VeyroApp</span>' : 'VeyroApp · demo mode — not actually delivered'}${m ? ` &nbsp;·&nbsp; <a href="${escapeHtml(m)}" style="color:#8D94A8;text-decoration:underline">Notification settings</a>` : ''}
+  <!-- footer -->
+  <tr><td style="background:#000000;padding:34px 40px 30px">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+      <td style="vertical-align:top">
+        <table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle;padding-right:12px">${bars(40, 13, '#ffffff')}</td><td style="vertical-align:middle;font-family:${SANS};font-size:30px;font-weight:600;letter-spacing:-1.2px;color:#ffffff">VeyroApp</td></tr></table>
+        <div style="font-family:${SANS};font-size:13px;line-height:1.5;color:#8D94A8;margin-top:12px">The operating system for staffing agencies.</div>
+      </td>
+    </tr></table>
+    <div style="height:1px;background:${'rgba(255,255,255,.12)'};margin:24px 0 18px;font-size:0;line-height:0">&nbsp;</div>
+    <div style="font-family:${MONO};font-size:11.5px;line-height:1.9;color:#8D94A8">
+      <a href="${W}/home" style="color:#ffffff;text-decoration:none">Home</a> &nbsp;/&nbsp; <a href="${W}/login" style="color:#ffffff;text-decoration:none">Sign in</a>${m ? ` &nbsp;/&nbsp; <a href="${escapeHtml(m)}" style="color:#ffffff;text-decoration:none">Notification settings</a>` : ''}<br/>
+      ${live ? `Sent with VeyroApp${fromName !== 'VeyroApp' ? ` on behalf of ${escapeHtml(fromName)}` : ''}` : 'VeyroApp · demo mode — not actually delivered'}
+    </div>
   </td></tr>
 </table></td></tr></table></body></html>`;
 }
