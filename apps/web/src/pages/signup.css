@@ -66,6 +66,9 @@
 .onb-task b { display: block; }
 .onb-task small { display: block; color: var(--text-3, #6B7280); margin-top: 2px; line-height: 1.45; }
 .onb-task .stat { color: #059669; font-weight: 600; }
+.onb-pill { position: fixed; right: 20px; bottom: 20px; z-index: 99; display: inline-flex; align-items: center; gap: 8px; padding: 10px 12px 10px 16px; border: 0; border-radius: 99px; cursor: pointer; font: inherit; font-weight: 600; font-size: 14px; color: #fff; background: linear-gradient(135deg, #345CFF, #7044FF); box-shadow: 0 16px 36px -14px #345CFF; animation: signupRise .4s cubic-bezier(.2, .8, .2, 1) both; }
+.onb-pill:hover { filter: brightness(1.08); }
+.onb-pill em { font-style: normal; font-size: 12px; padding: 2px 8px; border-radius: 99px; background: rgba(255, 255, 255, .22); }
 .onb-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
 @keyframes onbFade { from { opacity: 0; } to { opacity: 1; } }
 @media (max-width: 540px) { .onb-task { grid-template-columns: 40px 1fr; } .onb-task > :last-child { grid-column: 1 / -1; } }

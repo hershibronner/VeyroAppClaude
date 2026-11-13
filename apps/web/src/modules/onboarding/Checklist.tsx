@@ -1,7 +1,9 @@
 // First-login to-do popup for newly approved agencies: 1) invite your team, 2) import your data with AI.
+// Closing it (or starting a step) shrinks it to a floating "Finish setup" button on every page, so the other step is
+// always one click away — until both steps are done or someone marks setup complete.
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Check, PartyPopper, UserPlus, FileSpreadsheet, X, ArrowRight } from 'lucide-react';
+import { Check, PartyPopper, UserPlus, FileSpreadsheet, X, ArrowRight, Rocket } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
 import { Button, toBody } from '../../components/ui';
@@ -13,15 +15,23 @@ const ICON: Record<string, any> = { team: UserPlus, import: FileSpreadsheet };
 export function OnboardingChecklist() {
   const loc = useLocation();
   const nav = useNavigate();
-  const st = useApi<any>('/api/v1/onboarding/checklist', [loc.pathname === '/']);
-  const [hidden, setHidden] = useState(() => { try { return sessionStorage.getItem(HIDE_KEY) === '1'; } catch { return false; } });
-  useEffect(() => { const h = (e: KeyboardEvent) => { if (e.key === 'Escape') later(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); });
+  const st = useApi<any>('/api/v1/onboarding/checklist', [loc.pathname]);
+  // "later" = collapsed to the floating button for this browser session; the popup itself opens once per session.
+  const [collapsed, setCollapsed] = useState(() => { try { return sessionStorage.getItem(HIDE_KEY) === '1'; } catch { return false; } });
+  const [dismissed, setDismissed] = useState(false);
+  useEffect(() => { if (collapsed) return; const h = (e: KeyboardEvent) => { if (e.key === 'Escape') later(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); });
   const d = st.data;
-  if (!d?.show || hidden || loc.pathname.startsWith('/onboarding/')) return null;
+  if (!d?.show || dismissed) return null;
   const done = d.tasks.filter((t: any) => t.done).length;
-  function later() { try { sessionStorage.setItem(HIDE_KEY, '1'); } catch { /* private mode */ } setHidden(true); }
-  const dismiss = async () => { await api.post('/api/v1/onboarding/checklist/dismiss').catch(() => {}); setHidden(true); };
+  function later() { try { sessionStorage.setItem(HIDE_KEY, '1'); } catch { /* private mode */ } setCollapsed(true); }
+  const reopen = () => { try { sessionStorage.removeItem(HIDE_KEY); } catch { /* private mode */ } setCollapsed(false); };
+  const dismiss = async () => { await api.post('/api/v1/onboarding/checklist/dismiss').catch(() => {}); setDismissed(true); };
   const open = (t: any) => { later(); nav(t.link); };
+  if (collapsed || loc.pathname.startsWith('/onboarding/')) return toBody(
+    <button type="button" className="onb-pill" onClick={reopen} aria-label={`Finish setup: ${done} of ${d.tasks.length} done`}>
+      <Rocket size={16} /><span>Finish setup</span><em>{done}/{d.tasks.length}</em>
+    </button>,
+  );
   return toBody(
     <div className="onb-overlay" role="dialog" aria-modal="true" aria-labelledby="onb-title" onMouseDown={e => { if (e.target === e.currentTarget) later(); }}>
       <div className="onb-card">
@@ -37,7 +47,7 @@ export function OnboardingChecklist() {
             <Button variant={t.done ? 'outline' : 'primary'} size="sm" onClick={() => open(t)}>{t.done ? 'Open' : 'Start'} <ArrowRight size={14} /></Button>
           </div>); })}
         <div className="onb-foot">
-          <button type="button" className="btn btn-ghost btn-sm" onClick={dismiss}>Don't show this again</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={dismiss}>Mark setup as complete</button>
           <Button onClick={later}>I'll do it later</Button>
         </div>
       </div>
