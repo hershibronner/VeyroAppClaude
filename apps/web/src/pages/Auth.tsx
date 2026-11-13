@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams, useParams } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { Eye, EyeOff } from 'lucide-react';
 import { Button, Field } from '../components/ui';
 
 const DEMO = [
@@ -43,18 +44,50 @@ export function useEmailLive() {
 }
 const DevOutboxLink = () => <a href="/dev/outbox" target="_blank" rel="noreferrer">Dev Outbox</a>;
 
-export function AuthLayout({ children }: { children: ReactNode }) {
+/** VeyroApp asterisk mark — six rounded spokes. */
+export const BrandMark = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 32 32" fill="none" aria-hidden="true">
+    {[0, 60, 120].map(a => <rect key={a} x="13.5" y="2" width="5" height="28" rx="2.5" fill="currentColor" transform={`rotate(${a} 16 16)`} />)}
+  </svg>
+);
+
+export function AuthLayout({ children, lead = 'One workspace for your agency', title = 'Win clients, place talent, track time and run payroll — all in one place.' }: { children: ReactNode; lead?: string; title?: string }) {
   const live = useEmailLive();
+  useEffect(() => {
+    const id = 'lp-fonts';
+    if (document.getElementById(id)) return;
+    const l = document.createElement('link'); l.id = id; l.rel = 'stylesheet';
+    l.href = 'https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap';
+    document.head.appendChild(l);
+  }, []);
   return (
     <div className="auth">
-      <aside className="auth-brand">
-        <div>
-          <div className="wordmark">VeyroApp</div>
-          <p>Run your staffing company. Clients, candidates, placements, time, and billing in one workspace.</p>
-        </div>
-        {live === false && <p className="foot">Local build · MAGA Hire is a demo tenant</p>}
-      </aside>
-      <main className="auth-main"><div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>{children}</div></main>
+      <div className="auth-shell">
+        <aside className="auth-brand">
+          <i className="blob b1" /><i className="blob b2" /><i className="blob b3" /><i className="blob b4" /><i className="grain" />
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+            <Link to="/home" aria-label="VeyroApp home" style={{ color: '#fff' }}><BrandMark className="mark" /></Link>
+            <span className="mono">VeyroApp</span>
+          </div>
+          <div>
+            <p className="lead">{lead}</p>
+            <h2>{title}</h2>
+            {live === false && <p className="foot">Local build · MAGA Hire is a demo tenant</p>}
+          </div>
+        </aside>
+        <main className="auth-main">{children}</main>
+      </div>
+    </div>
+  );
+}
+
+/** Password input with a show/hide toggle. */
+function PasswordInput({ id, value, onChange, autoComplete }: { id: string; value: string; onChange: (v: string) => void; autoComplete: string }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="pw">
+      <input id={id} className="input" type={show ? 'text' : 'password'} autoComplete={autoComplete} value={value} onChange={e => onChange(e.target.value)} required />
+      <button type="button" onClick={() => setShow(s => !s)} aria-label={show ? 'Hide password' : 'Show password'}>{show ? <EyeOff size={17} /> : <Eye size={17} />}</button>
     </div>
   );
 }
@@ -87,11 +120,12 @@ export function LoginPage() {
     <AuthLayout>
       <div className="auth-card">
         {!mfa ? (<>
-          <h1>Sign in</h1>
-          <div className="sub">Use your workspace account.</div>
+          <BrandMark className="auth-mark" />
+          <h1>Welcome back</h1>
+          <div className="sub">Sign in to your workspace — leads, recruiting, placements, time and payroll, all in one place.</div>
           <form className="stack" style={{ gap: 14 }} onSubmit={ev => { ev.preventDefault(); submit(); }}>
             <Field label="Email" htmlFor="email"><input id="email" className="input" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required /></Field>
-            <Field label={<span className="row" style={{ justifyContent: 'space-between' }}>Password <Link to="/forgot-password" className="small" style={{ fontWeight: 500 }}>Forgot password?</Link></span>} htmlFor="password"><input id="password" className="input" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required /></Field>
+            <Field label={<span className="row" style={{ justifyContent: 'space-between' }}>Password <Link to="/forgot-password" className="small" style={{ fontWeight: 500 }}>Forgot password?</Link></span>} htmlFor="password"><PasswordInput id="password" autoComplete="current-password" value={password} onChange={setPassword} /></Field>
             {err && <div className="err small" role="alert" style={{ color: 'var(--danger)' }}>{err}</div>}
             <Button type="submit" variant="primary" block loading={busy}>Sign in</Button>
           </form>
@@ -103,7 +137,7 @@ export function LoginPage() {
                 {DEMO.map(d => <button key={d.email} type="button" disabled={busy} onClick={() => { setEmail(d.email); setPassword('demo1234'); submit(d.email, 'demo1234'); }}><b>{d.who}</b>{d.role}</button>)}
               </div>
             </>}
-            <div className="demo-links"><Link to="/register">Create a new agency</Link>{live === false && <DevOutboxLink />}</div>
+            <div className="demo-links"><span>New to VeyroApp? <Link to="/register">Create your agency</Link></span>{live === false && <DevOutboxLink />}</div>
           </div>
         </>) : (<>
           <h1>Enter your code</h1>
@@ -135,6 +169,7 @@ export function RegisterPage() {
   return (
     <AuthLayout>
       <div className="auth-card">
+        <BrandMark className="auth-mark" />
         <h1>Create your agency</h1>
         <div className="sub">Start a 14-day trial. $29/month per active worker after that — client users and candidates are free.</div>
         <form className="stack" style={{ gap: 14 }} onSubmit={e => { e.preventDefault(); submit(); }}>
@@ -159,6 +194,7 @@ export function ForgotPage() {
   return (
     <AuthLayout>
       <div className="auth-card">
+        <BrandMark className="auth-mark" />
         <h1>Reset your password</h1>
         {sent ? <div className="sub">If an account exists for <b>{email}</b>, a reset link is on its way. {live === false ? <>In this local build, open the <DevOutboxLink /> to find it.</> : <>Check your inbox (and spam folder). The link works for 1 hour.</>}</div> : (<>
           <div className="sub">Enter your email and we'll send you a reset link.</div>
@@ -182,6 +218,7 @@ export function ResetPage() {
   return (
     <AuthLayout>
       <div className="auth-card">
+        <BrandMark className="auth-mark" />
         <h1>Choose a new password</h1>
         <div className="sub">All other sessions will be signed out.</div>
         <form className="stack" style={{ gap: 14 }} onSubmit={async e => { e.preventDefault(); setBusy(true); setErr(null); try { await api.post('/api/v1/auth/reset', { token: sp.get('token'), password: pw }); nav('/login?reset=1'); } catch (x) { setErr((x as Error).message); } finally { setBusy(false); } }}>
