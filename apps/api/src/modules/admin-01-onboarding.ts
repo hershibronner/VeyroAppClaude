@@ -157,6 +157,16 @@ async function plugin(app: FastifyInstance) {
   }
   app.post('/api/v1/platform/applications/:id/approve', (req) => decide(req, true));
   app.post('/api/v1/platform/applications/:id/reject', (req) => decide(req, false));
+  /** Bring back the first-login welcome checklist for an approved agency (after someone marked setup complete). */
+  app.post('/api/v1/platform/applications/:id/reset-welcome', async (req) => {
+    const ctx = platform(req);
+    const { id } = req.params as any;
+    const a = await one<any>(`SELECT a.checklist_dismissed_at, o.name FROM agency_applications a JOIN organizations o ON o.id=a.organization_id WHERE a.organization_id=$1`, [id]);
+    if (!a) throw notFound();
+    await q(`UPDATE agency_applications SET checklist_dismissed_at=NULL WHERE organization_id=$1`, [id]);
+    await audit(auditAs(ctx, id), 'platform.welcome_reset', { type: 'organization', id, label: a.name }, { checklist_dismissed_at: a.checklist_dismissed_at }, { checklist_dismissed_at: null });
+    return { ok: true };
+  });
 
   /* ── First-login checklist ── */
   app.get('/api/v1/onboarding/checklist', async (req) => {

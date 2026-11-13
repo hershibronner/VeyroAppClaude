@@ -1,6 +1,6 @@
 // Platform → Agencies: self-serve sign-ups waiting for approval. Approving emails the owner that the account is active.
 import { useState } from 'react';
-import { Check, X, FileText, Globe, Phone, MapPin, Users, Briefcase, Inbox, ShieldCheck } from 'lucide-react';
+import { Check, X, FileText, Globe, Phone, MapPin, Users, Briefcase, Inbox, ShieldCheck, RotateCcw } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
 import { relTime, dateTime } from '../../lib/format';
@@ -17,6 +17,11 @@ export function ApplicationsPanel({ onChanged }: { onChanged?: () => void }) {
   const [reject, setReject] = useState<any>(null);
   const [reason, setReason] = useState('');
   const counts = st.data?.counts ?? {};
+  const resetWelcome = async (a: any) => {
+    setBusy(`w${a.organization_id}`);
+    try { await api.post(`/api/v1/platform/applications/${a.organization_id}/reset-welcome`, {}); toast.success(`${a.name} will see the welcome checklist again on their next visit`); }
+    catch (e) { toast.error(e); } finally { setBusy(null); }
+  };
   const approve = async (a: any) => {
     setBusy(a.organization_id);
     try { await api.post(`/api/v1/platform/applications/${a.organization_id}/approve`, {}); toast.success(`${a.name} approved — ${a.applicant_email} has been emailed`); st.reload(); onChanged?.(); }
@@ -59,6 +64,9 @@ export function ApplicationsPanel({ onChanged }: { onChanged?: () => void }) {
             </div>}
             {a.reviewed_at && <div className="tiny muted mt-1">{a.approval_status === 'approved' ? 'Approved' : 'Rejected'} by {a.reviewed_by_name ?? '—'} · {dateTime(a.reviewed_at)}{a.rejection_reason ? ` · “${a.rejection_reason}”` : ''}</div>}
           </div>
+          {a.approval_status === 'approved' && <div className="row" style={{ gap: 8, alignSelf: 'center' }}>
+            <Button size="sm" icon={<RotateCcw size={14} />} loading={busy === `w${a.organization_id}`} disabled={!!busy} onClick={() => resetWelcome(a)}>Reset welcome</Button>
+          </div>}
           {a.approval_status !== 'approved' && <div className="row" style={{ gap: 8, alignSelf: 'center' }}>
             {a.approval_status === 'pending' && <Button size="sm" icon={<X size={14} />} onClick={() => { setReject(a); setReason(''); }} disabled={!!busy}>Reject</Button>}
             <Button size="sm" variant="primary" icon={<Check size={14} />} loading={busy === a.organization_id} disabled={!!busy} onClick={() => approve(a)}>Approve</Button>
