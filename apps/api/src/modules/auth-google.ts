@@ -1,8 +1,8 @@
 // "Continue with Google" — OAuth 2.0 authorization-code flow, no SDK. Needs GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET;
-// the Google OAuth client must list `${WEB_URL}/api/v1/auth/google/callback` as an authorized redirect URI.
+// the Google OAuth client must list `https://<your domain>/api/v1/auth/google/callback` as an authorized redirect URI.
 //  • Existing account (matched by Google-verified email) → signed in (2FA still applies).
 //  • New email → a verified sign-up token, then /register continues with name + email filled in and no password needed.
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import crypto from 'node:crypto';
 import { z } from 'zod';
 import { one, q } from '../core/db';
@@ -17,7 +17,13 @@ const STATE_COOKIE = 'vg_state';
 const clientId = () => process.env.GOOGLE_CLIENT_ID?.trim();
 const clientSecret = () => process.env.GOOGLE_CLIENT_SECRET?.trim();
 const enabled = () => !!(clientId() && clientSecret());
-const redirectUri = () => `${WEB_URL.replace(/\/$/, '')}/api/v1/auth/google/callback`;
+/** Callback on the domain the visitor is using (custom domain behind Railway's proxy), falling back to WEB_URL. */
+function redirectUri(req: FastifyRequest) {
+  const host = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').split(',')[0].trim();
+  const proto = String(req.headers['x-forwarded-proto'] ?? (IS_PROD ? 'https' : 'http')).split(',')[0].trim();
+  const origin = host && /^[a-z0-9.-]+(:\d+)?$/i.test(host) ? `${proto}://${host}` : WEB_URL.replace(/\/$/, '');
+  return `${origin}/api/v1/auth/google/callback`;
+}
 /** Only same-site paths are allowed as a post-login destination. */
 const safeNext = (n?: string | null) => (n && n.startsWith('/') && !n.startsWith('//') ? n.slice(0, 300) : '');
 
@@ -34,7 +40,7 @@ export default async function googleAuth(app: FastifyInstance) {
     await rateLimit(`google-start:${req.ip}`, 30, 600);
     const nonce = crypto.randomBytes(24).toString('base64url');
     reply.setCookie(STATE_COOKIE, JSON.stringify({ nonce, intent: qs.intent, next: safeNext(qs.next) }), { path: '/api/v1/auth/google', httpOnly: true, sameSite: 'lax', secure: IS_PROD, maxAge: 600 });
-    const p = new URLSearchParams({ client_id: clientId()!, redirect_uri: redirectUri(), response_type: 'code', scope: 'openid email profile', state: nonce, prompt: 'select_account' });
+    const p = new URLSearchParams({ client_id: clientId()!, redirect_uri: redirectUri(req), response_type: 'code', scope: 'openid email profile', state: nonce, prompt: 'select_account' });
     return reply.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${p}`);
   });
 
@@ -52,7 +58,7 @@ export default async function googleAuth(app: FastifyInstance) {
     try {
       const tok = await fetch('https://oauth2.googleapis.com/token', {
         method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ code: qs.code, client_id: clientId()!, client_secret: clientSecret()!, redirect_uri: redirectUri(), grant_type: 'authorization_code' }),
+        body: new URLSearchParams({ code: qs.code, client_id: clientId()!, client_secret: clientSecret()!, redirect_uri: redirectUri(req), grant_type: 'authorization_code' }),
       }).then(r => r.json() as Promise<any>);
       if (!tok.access_token) throw new Error(tok.error_description || tok.error || 'no access token');
       profile = await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: { authorization: `Bearer ${tok.access_token}` } }).then(r => r.json() as Promise<any>);
