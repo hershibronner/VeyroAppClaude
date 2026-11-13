@@ -75,6 +75,16 @@ export const listCompletedCheckoutSessions = (account: string, createdGte: numbe
 export const createRefund = (account: string, paymentIntent: string, amountCents: number, metadata: Record<string, string>, idempotencyKey: string) =>
   call<any>('POST', '/v1/refunds', { account, idempotencyKey, params: { payment_intent: paymentIntent, amount: amountCents, metadata } });
 
+// ── Platform's own account (VeyroApp subscription billing; no Stripe-Account header) ──
+export const createCustomer = (params: Record<string, unknown>, idempotencyKey: string) => call<any>('POST', '/v1/customers', { params, idempotencyKey });
+export const createSetupCheckout = (customer: string, successUrl: string, cancelUrl: string, metadata: Record<string, string>) =>
+  call<any>('POST', '/v1/checkout/sessions', { params: { mode: 'setup', customer, payment_method_types: ['card'], currency: 'usd', success_url: successUrl, cancel_url: cancelUrl, metadata, setup_intent_data: { metadata } } });
+export const getPlatformCheckoutSession = (id: string) => call<any>('GET', `/v1/checkout/sessions/${encodeURIComponent(id)}`, { params: { expand: ['setup_intent.payment_method'] } });
+export const setDefaultPaymentMethod = (customer: string, paymentMethod: string) => call<any>('POST', `/v1/customers/${encodeURIComponent(customer)}`, { params: { invoice_settings: { default_payment_method: paymentMethod } } });
+/** Charges a saved card without the customer present. Throws StripeError (402) on declines / authentication_required. */
+export const chargeOffSession = (customer: string, paymentMethod: string, amountCents: number, description: string, metadata: Record<string, string>, idempotencyKey: string) =>
+  call<any>('POST', '/v1/payment_intents', { idempotencyKey, params: { amount: amountCents, currency: 'usd', customer, payment_method: paymentMethod, off_session: true, confirm: true, description, metadata } });
+
 /** Verifies a `Stripe-Signature` header against the raw body and returns the parsed event. */
 export function verifyWebhook(raw: Buffer | string, header: string | undefined, secret: string, toleranceSec = 300) {
   const parts = String(header ?? '').split(',').map(s => s.trim().split('='));

@@ -1,4 +1,5 @@
-// Settings → Billing & Subscription (agency side of SaaS billing).
+// Settings → Billing & Subscription (agency side of SaaS billing). With Stripe set up on the server, cards are saved on
+// Stripe Checkout (setup mode) into a Customer on VeyroApp's own Stripe account and monthly invoices are charged for real.
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { q, one, tx } from '../core/db';
@@ -7,13 +8,37 @@ import { badRequest, conflict, notFound } from '../core/errors';
 import { audit } from '../core/audit';
 import { listParams, paged } from '../core/list';
 import { every } from '../jobs/queue';
-import { activeSeats, quoteMonth, seatHistory } from './_admin/saas';
+import { activeSeats, generateInvoice, quoteMonth, seatHistory } from './_admin/saas';
 import { chargeInvoice, reactivateIfSettled, sweepGrace } from './_admin/billingflow';
 import { isUuid, notifyPlatform, pad } from './_admin/common';
 import { fieldError } from './_admin/common';
 import { usersWithRoles, notify } from '../core/notify';
+import { IS_PROD } from '../core/env';
+import * as stripe from '../adapters/stripe';
+import { originOf } from './finance-stripe';
 
 every('saas.grace-sweep', 60_000, sweepGrace);
+
+/** A card we can actually charge: a saved Stripe card when Stripe is live, the simulated vault otherwise. */
+const hasCard = (sub: any) => stripe.stripePlatform() ? !!(sub?.stripe_customer_id && sub?.stripe_payment_method_id) : !!sub?.card_last4;
+
+// Monthly run (real billing only): once a month has ended, create each agency's per-seat invoice and charge it to the
+// saved card. Agencies without a card get the invoice but no charge attempt, so nobody is pushed into grace by surprise.
+every('saas.monthly-billing', 60 * 60_000, async () => {
+  if (!stripe.stripePlatform()) return;
+  const d = new Date(); const prev = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1));
+  const ym = `${prev.getUTCFullYear()}-${pad(prev.getUTCMonth() + 1, 2)}`;
+  const orgs = await q<any>(`SELECT o.id FROM organizations o JOIN subscriptions s ON s.organization_id=o.id WHERE o.status <> 'deleted'`);
+  for (const o of orgs) {
+    try {
+      const r = await generateInvoice(o.id, ym);
+      if (!r.existing) await audit({ orgId: o.id, userId: null, user: { name: 'VeyroApp Billing' }, impersonatorId: null, ip: 'system' } as any, 'saas_invoice.generated', { type: 'saas_invoice', id: r.invoice.id, label: r.invoice.number }, null, { total_cents: r.invoice.total_cents, status: r.invoice.status });
+      const sub = await one<any>(`SELECT * FROM subscriptions WHERE organization_id=$1`, [o.id]);
+      const due = await q<any>(`SELECT id FROM saas_invoices WHERE organization_id=$1 AND status='open' AND attempts=0 AND total_cents > 0`, [o.id]);
+      if (hasCard(sub)) for (const inv of due) await chargeInvoice(inv.id, null);
+    } catch (e: any) { console.error('[saas monthly billing]', o.id, e?.message ?? e); }
+  }
+});
 
 function luhn(num: string) { let s = 0; let alt = false; for (let i = num.length - 1; i >= 0; i--) { let n = Number(num[i]); if (alt) { n *= 2; if (n > 9) n -= 9; } s += n; alt = !alt; } return s % 10 === 0; }
 function brandOf(num: string) { return /^4/.test(num) ? 'Visa' : /^5[1-5]/.test(num) || /^2[2-7]/.test(num) ? 'Mastercard' : /^3[47]/.test(num) ? 'Amex' : /^6/.test(num) ? 'Discover' : 'Card'; }
@@ -34,7 +59,8 @@ export default async function (app: FastifyInstance) {
     return {
       subscription: { plan_key: sub.plan_key, plan_name: sub.plan_name, status: sub.status, comped: sub.comped, discount_pct: sub.discount_pct, tax_bp: sub.tax_bp, trial_ends_at: sub.trial_ends_at, grace_ends_at: sub.grace_ends_at, suspended_at: sub.suspended_at,
         current_period_start: sub.current_period_start, price_per_seat_cents: sub.price_per_seat_cents, addon_cents: sub.features?.addon_monthly_cents ?? 0, billing_email: sub.billing_email,
-        card: sub.card_last4 ? { brand: sub.card_brand ?? 'Card', last4: sub.card_last4, exp: sub.card_exp, test_decline: sub.card_fails } : null },
+        card: hasCard(sub) ? { brand: sub.card_brand ?? 'Card', last4: sub.card_last4, exp: sub.card_exp, test_decline: sub.card_fails } : null },
+      card_mode: stripe.stripePlatform() ? 'stripe' : IS_PROD ? 'unavailable' : 'simulated',
       plans, estimate, invoices, seats: { now: seatsNow, start_of_month: lastMonthSeats, started_this_month: changes.started, ended_this_month: changes.ended }, history: await seatHistory(ctx.orgId, 12), paid_12m_cents: paid12,
       editable: can(ctx, 'billing', 'edit'),
     };
@@ -64,13 +90,51 @@ export default async function (app: FastifyInstance) {
     const { id } = req.params as any; if (!isUuid(id)) throw notFound();
     const inv = await one<any>(`SELECT * FROM saas_invoices WHERE id=$1 AND organization_id=$2`, [id, ctx.orgId]); if (!inv) throw notFound();
     if (!['open', 'failed'].includes(inv.status)) throw conflict(`This invoice is ${inv.status}`);
-    const sub = await one<any>(`SELECT card_last4 FROM subscriptions WHERE organization_id=$1`, [ctx.orgId]);
-    if (!sub?.card_last4) throw conflict('Add a payment method first');
+    const sub = await one<any>(`SELECT * FROM subscriptions WHERE organization_id=$1`, [ctx.orgId]);
+    if (!hasCard(sub)) throw conflict('Add a payment method first');
     return chargeInvoice(inv.id, ctx);
+  });
+
+  // Real card: Stripe Checkout in setup mode (card details stay on Stripe). Returns the URL to open.
+  app.post('/api/v1/billing/payment-method/checkout', async (req) => {
+    const ctx = staff(req); need(ctx, 'billing', 'edit');
+    if (!stripe.stripePlatform()) throw conflict('Card payments are not set up on this server yet');
+    let sub = await one<any>(`SELECT * FROM subscriptions WHERE organization_id=$1`, [ctx.orgId]);
+    if (!sub) throw notFound();
+    if (!sub.stripe_customer_id) {
+      const c = await stripe.createCustomer({ name: ctx.org.name, email: sub.billing_email || ctx.user.email, metadata: { organization_id: ctx.orgId } }, `customer:${ctx.orgId}`);
+      await q(`UPDATE subscriptions SET stripe_customer_id=$2, updated_at=now() WHERE organization_id=$1`, [ctx.orgId, c.id]);
+      sub = { ...sub, stripe_customer_id: c.id };
+    }
+    const back = `${originOf(req)}/settings/billing`;
+    const s = await stripe.createSetupCheckout(sub.stripe_customer_id, `${back}?card_session={CHECKOUT_SESSION_ID}`, back, { organization_id: ctx.orgId });
+    return { url: s.url };
+  });
+  // Back from Stripe: read the saved card, make it the default, and retry any failed invoices with it.
+  app.get('/api/v1/billing/payment-method/checkout/:sessionId', async (req) => {
+    const ctx = staff(req); need(ctx, 'billing', 'edit');
+    const { sessionId } = req.params as { sessionId: string };
+    if (!stripe.stripePlatform() || !/^cs_[A-Za-z0-9_]+$/.test(sessionId)) throw notFound();
+    const sub = await one<any>(`SELECT * FROM subscriptions WHERE organization_id=$1`, [ctx.orgId]);
+    const s = await stripe.getPlatformCheckoutSession(sessionId);
+    if (s.metadata?.organization_id !== ctx.orgId || s.customer !== sub?.stripe_customer_id) throw notFound();
+    const pm = s.setup_intent?.payment_method;
+    if (s.status !== 'complete' || !pm?.id) return { ok: false, status: s.status };
+    if (pm.id === sub.stripe_payment_method_id) return { ok: true, card: { brand: sub.card_brand, last4: sub.card_last4, exp: sub.card_exp }, retried: [] };
+    await stripe.setDefaultPaymentMethod(sub.stripe_customer_id, pm.id);
+    const card = pm.card ?? {};
+    const brand = card.brand ? card.brand[0].toUpperCase() + card.brand.slice(1) : 'Card';
+    const exp = card.exp_month ? `${pad(card.exp_month, 2)}/${String(card.exp_year).slice(-2)}` : null;
+    await q(`UPDATE subscriptions SET stripe_payment_method_id=$2, card_brand=$3, card_last4=$4, card_exp=$5, card_fails=false, updated_at=now() WHERE organization_id=$1`, [ctx.orgId, pm.id, brand, card.last4 ?? null, exp]);
+    await audit(ctx, 'billing.payment_method_updated', { type: 'subscription', id: ctx.orgId, label: ctx.org.name }, sub.card_last4 ? { card: `${sub.card_brand} •••• ${sub.card_last4}` } : null, { card: `${brand} •••• ${card.last4}`, via: 'stripe' });
+    const failed = await q<any>(`SELECT id FROM saas_invoices WHERE organization_id=$1 AND status IN ('failed','open') AND total_cents > 0 ORDER BY period_start`, [ctx.orgId]);
+    const retried = []; for (const f of failed) retried.push(await chargeInvoice(f.id, ctx));
+    return { ok: true, card: { brand, last4: card.last4, exp }, retried };
   });
 
   app.post('/api/v1/billing/payment-method', async (req) => {
     const ctx = staff(req); need(ctx, 'billing', 'edit');
+    if (stripe.stripePlatform() || IS_PROD) throw conflict('Cards are added on the secure Stripe page — refresh and click Add card');
     const b = z.object({ number: z.string().min(12).max(23), exp: z.string().regex(/^(0[1-9]|1[0-2])\/\d{2}$/, 'Use MM/YY'), cvc: z.string().regex(/^\d{3,4}$/, '3 or 4 digits'), name: z.string().min(2).max(80) }).parse(req.body);
     const num = b.number.replace(/\D/g, '');
     if (num.length < 13 || !luhn(num)) throw fieldError({ number: 'This card number is not valid' });
@@ -94,7 +158,7 @@ export default async function (app: FastifyInstance) {
     return { ok: true };
   });
 
-  // Plan change (simulated checkout). White Label turns on white-label settings; downgrading turns them off.
+  // Plan change (no charge now — the new price applies from the next monthly invoice). White Label turns on white-label settings; downgrading turns them off.
   app.post('/api/v1/billing/change-plan', async (req) => {
     const ctx = staff(req); need(ctx, 'billing', 'edit');
     const b = z.object({ plan_key: z.string() }).parse(req.body);
@@ -103,7 +167,7 @@ export default async function (app: FastifyInstance) {
     if (sub.plan_key === plan.key) throw conflict(`You are already on ${plan.name}`);
     if (plan.key === 'trial') throw conflict('You cannot switch back to a trial');
     if (sub.status === 'suspended') throw conflict('Pay the outstanding invoice before changing plans');
-    if (!sub.comped && !sub.card_last4) throw conflict('Add a payment method before upgrading', { needs_card: true });
+    if (!sub.comped && !hasCard(sub)) throw conflict('Add a payment method before upgrading', { needs_card: true });
     await tx(async (c) => {
       const status = sub.status === 'trialing' ? 'active' : sub.status;
       await c.query(`UPDATE subscriptions SET plan_key=$2, status=$3, trial_ends_at=CASE WHEN $3='active' THEN NULL ELSE trial_ends_at END, updated_at=now() WHERE organization_id=$1`, [ctx.orgId, plan.key, status]);

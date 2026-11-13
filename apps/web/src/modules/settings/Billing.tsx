@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Armchair, CalendarClock, Check, CreditCard, Crown, Receipt, TrendingUp, Wallet } from 'lucide-react';
 import { api, ApiError } from '../../lib/api';
@@ -10,6 +10,7 @@ import { Banner, Button, Card, CardHeader, Dialog, Drawer, ErrorState, Field, Kp
 import { ChartCard, TrackBars } from '../../components/charts';
 import { DataTable, opts } from '../../components/DataTable';
 import { Gate, ReadOnlyNote } from './common';
+import { useStripeTab } from './StripeConnect';
 
 export default function BillingSettings() {
   return <Gate resource="billing">{editable => <BillingInner editable={editable} />}</Gate>;
@@ -19,11 +20,29 @@ function BillingInner({ editable }: { editable: boolean }) {
   const st = useApi<any>('/api/v1/billing');
   const { refresh } = useAuth();
   const nav = useNavigate();
-  const [sp] = useSearchParams();
+  const [sp, setSp] = useSearchParams();
   const [cardOpen, setCardOpen] = useState(false);
   const [inv, setInv] = useState<string | null>(null);
   const [months, setMonths] = useState(6);
   const confirm = useConfirm();
+  // Real cards: Stripe's secure page opens in a new tab; done once the saved card changes.
+  const cardBefore = useRef('');
+  const cardSig = (x: any) => x?.subscription?.card ? `${x.subscription.card.brand}${x.subscription.card.last4}${x.subscription.card.exp}` : '';
+  const stripeCard = useStripeTab({
+    getUrl: async () => { cardBefore.current = cardSig(st.data); return (await api.post('/api/v1/billing/payment-method/checkout')).url; },
+    isDone: async () => { const x = await api.get('/api/v1/billing'); return !!x?.subscription?.card && cardSig(x) !== cardBefore.current; },
+    onDone: () => { st.reload(); refresh(); },
+    copy: { title: 'Adding your card', waiting: 'Enter your card in the Stripe tab', hint: 'Your card details go straight to Stripe — VeyroApp only keeps the brand and last 4 digits.', doneTitle: 'Card saved', doneBody: 'Your VeyroApp subscription will be charged to this card each month.' },
+  });
+  // This tab is the one Stripe sent back: confirm the saved card (and retry any unpaid invoice with it).
+  useEffect(() => {
+    const sid = sp.get('card_session'); if (!sid) return;
+    sp.delete('card_session'); setSp(sp, { replace: true });
+    api.get(`/api/v1/billing/payment-method/checkout/${encodeURIComponent(sid)}`).then((r: any) => {
+      if (r.ok) { toast.success(`${r.card.brand} •••• ${r.card.last4} saved. You can close this tab.`); for (const x of r.retried ?? []) x.ok ? toast.success(x.message) : toast.error(x.message); }
+      st.reload(); refresh();
+    }).catch(e => toast.error(e));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   if (st.error && !st.data) return <ErrorState error={st.error} retry={st.reload} />;
   if (!st.data) return <div className="stack"><PageHeader title="Billing & Subscription" /><Card><LoadingBlock rows={8} /></Card></div>;
   const d = st.data; const s = d.subscription; const est = d.estimate;
@@ -70,13 +89,13 @@ function BillingInner({ editable }: { editable: boolean }) {
             <div className="divider" style={{ margin: '4px 0' }} />
             <div className="row" style={{ justifyContent: 'space-between' }}>
               <span className="row" style={{ gap: 8 }}><CreditCard size={16} />{s.card ? <span>{s.card.brand} •••• {s.card.last4} <span className="muted small">exp {s.card.exp}</span></span> : <span className="muted">No payment method</span>}</span>
-              {editable && <Button size="sm" onClick={() => setCardOpen(true)}>{s.card ? 'Replace' : 'Add card'}</Button>}
+              {editable && d.card_mode !== 'unavailable' && <Button size="sm" loading={stripeCard.busy} onClick={() => d.card_mode === 'stripe' ? stripeCard.start() : setCardOpen(true)}>{s.card ? 'Replace' : 'Add card'}</Button>}
             </div>
           </div>
         </Card>
       </div>
       <Card>
-        <CardHeader title="Plans" sub="Simulated checkout — switching plans never charges a real card." />
+        <CardHeader title="Plans" sub={d.card_mode === 'simulated' ? 'Simulated checkout — switching plans never charges a real card.' : 'Switching plans doesn’t charge now — the new price applies from your next monthly invoice.'} />
         <div className="card-b grid-3">
           {d.plans.filter((p: any) => p.key !== 'trial' || s.plan_key === 'trial').map((p: any) => (
             <div key={p.key} className={`st-plan ${p.key === s.plan_key ? 'current' : ''}`} style={highlight === p.key && p.key !== s.plan_key ? { borderColor: 'var(--accent)', boxShadow: '0 0 0 3px rgba(112,68,255,.15)' } : undefined}>
@@ -123,6 +142,7 @@ function BillingInner({ editable }: { editable: boolean }) {
         ]} /></div>
       <PaymentMethodDialog open={cardOpen} onClose={() => setCardOpen(false)} onSaved={() => { st.reload(); refresh(); }} />
       <InvoiceDrawer id={inv} onClose={() => setInv(null)} />
+      {stripeCard.modal}
     </div>
   );
 }
